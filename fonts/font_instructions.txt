@@ -1,0 +1,27 @@
+PIXEL FONT SETUP INSTRUCTIONS
+=============================
+
+To get the authentic retro arcade look, you need to add a pixel-style font:
+
+OPTION 1 - Download Pixeled Font:
+1. Visit: https://fonts.google.com/specimen/Pixelify+Sans
+2. Download the font file
+3. Rename it to "Pixeled.ttf"
+4. Place it in this fonts/ directory
+
+OPTION 2 - Alternative Pixel Fonts:
+- Search for "pixel fonts" or "8-bit fonts" online
+- Popular options: "Press Start 2P", "VT323", "Orbitron"
+- Save as "Pixeled.ttf" in this directory
+
+OPTION 3 - Use System Font:
+- The game will automatically fall back to system font if no custom font is found
+- Still looks good but less retro
+
+The game supports these font sizes:
+- Title: 48px (main menu title)
+- Large: 32px (score, menu options)
+- Medium: 24px (subtitles, instructions)
+- Small: 16px (detailed instructions)
+
+Once you add the font file, restart the game to see the retro styling!

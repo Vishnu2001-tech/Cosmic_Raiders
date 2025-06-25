@@ -1,0 +1,12 @@
+# Space Invaders Font Configuration
+# 
+# This game supports custom pixel fonts for authentic retro styling
+# 
+# Recommended fonts:
+# - Pixeled.ttf (place in this directory)
+# - Press Start 2P
+# - VT323
+# - Orbitron
+# 
+# The game will automatically detect and use any font named 'Pixeled.ttf'
+# in this directory, otherwise it falls back to system monospace fonts.
