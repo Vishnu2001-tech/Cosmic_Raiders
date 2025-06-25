@@ -2,7 +2,15 @@ import pygame
 import random
 import sys
 import os
+import math
 from enum import Enum
+from high_score_manager import HighScoreManager
+from visual_assets import VisualAssets
+from alien_design_manager import AlienDesignManager
+from difficulty_manager import DifficultyManager
+from ui_manager import UIManager
+from spaceship_designer import SpaceshipDesigner
+from progressive_spawner import ProgressiveSpawner
 
 # Initialize Pygame
 pygame.init()
@@ -107,13 +115,14 @@ class FontManager:
         return surface, surface.get_rect()
 
 class Player:
-    def __init__(self, x, y):
+    def __init__(self, x, y, visual_assets=None):
         self.x = x
         self.y = y
         self.width = 50
-        self.height = 30
+        self.height = 40
         self.speed = 5
         self.rect = pygame.Rect(x, y, self.width, self.height)
+        self.visual_assets = visual_assets
         
     def move_left(self):
         if self.x > 0:
@@ -126,8 +135,15 @@ class Player:
             self.rect.x = self.x
             
     def draw(self, screen):
+        # Use enhanced ship sprite if available
+        if self.visual_assets:
+            ship_sprite = self.visual_assets.get_sprite('player')
+            if ship_sprite:
+                screen.blit(ship_sprite, (self.x, self.y))
+                return
+        
+        # Fallback to original drawing
         pygame.draw.rect(screen, GREEN, self.rect)
-        # Draw a simple spaceship shape
         pygame.draw.polygon(screen, WHITE, [
             (self.x + self.width//2, self.y),
             (self.x, self.y + self.height),
@@ -135,15 +151,16 @@ class Player:
         ])
 
 class Bullet:
-    def __init__(self, x, y, direction, speed_multiplier=1.0):
+    def __init__(self, x, y, direction, speed_multiplier=1.0, visual_assets=None):
         self.x = x
         self.y = y
         self.width = 4
-        self.height = 10
+        self.height = 12
         base_speed = 8
         self.speed = base_speed * speed_multiplier
         self.direction = direction  # 1 for up (player), -1 for down (alien)
         self.rect = pygame.Rect(x, y, self.width, self.height)
+        self.visual_assets = visual_assets
         
     def update(self):
         self.y -= self.speed * self.direction
@@ -153,31 +170,46 @@ class Bullet:
         return self.y < -10 or self.y > SCREEN_HEIGHT + 10
         
     def draw(self, screen):
+        # Use enhanced laser sprites if available
+        if self.visual_assets:
+            if self.direction == 1:  # Player bullet
+                bullet_sprite = self.visual_assets.get_sprite('player_bullet')
+            else:  # Alien bullet
+                bullet_sprite = self.visual_assets.get_sprite('alien_bullet')
+            
+            if bullet_sprite:
+                screen.blit(bullet_sprite, (self.x, self.y))
+                return
+        
+        # Fallback to original drawing
         if self.direction == 1:  # Player bullet
             color = YELLOW
-            # Add a glow effect for player bullets
             pygame.draw.rect(screen, color, self.rect)
             pygame.draw.rect(screen, WHITE, 
                            (self.x - 1, self.y - 1, self.width + 2, self.height + 2), 1)
         else:  # Alien bullet
             color = RED
             pygame.draw.rect(screen, color, self.rect)
-            # Make alien bullets more menacing
             pygame.draw.rect(screen, (255, 100, 100), 
                            (self.x - 1, self.y - 1, self.width + 2, self.height + 2), 1)
 
 class HitEffect:
-    def __init__(self, x, y, effect_type="explosion"):
+    def __init__(self, x, y, effect_type="explosion", visual_assets=None):
         self.x = x
         self.y = y
         self.effect_type = effect_type
         self.timer = 0
         self.max_time = 30  # frames to show effect
         self.size = 0
+        self.visual_assets = visual_assets
+        self.explosion_frame = 0
         
     def update(self):
         self.timer += 1
-        # Grow then shrink effect
+        # Update explosion animation frame
+        self.explosion_frame = min(5, self.timer // 5)  # 6 frames total
+        
+        # Grow then shrink effect for fallback
         if self.timer < self.max_time // 2:
             self.size = self.timer * 2
         else:
@@ -187,7 +219,17 @@ class HitEffect:
     
     def draw(self, screen, font_manager):
         if self.effect_type == "explosion":
-            # Draw explosion effect
+            # Use enhanced explosion sprites if available
+            if self.visual_assets:
+                explosion_sprite = self.visual_assets.get_explosion_frame(self.explosion_frame)
+                if explosion_sprite:
+                    # Center the explosion sprite
+                    sprite_rect = explosion_sprite.get_rect()
+                    sprite_rect.center = (int(self.x), int(self.y))
+                    screen.blit(explosion_sprite, sprite_rect)
+                    return
+            
+            # Fallback explosion effect
             colors = [YELLOW, RED, WHITE]
             for i, color in enumerate(colors):
                 radius = max(1, self.size - i * 3)
@@ -202,7 +244,8 @@ class HitEffect:
                 screen.blit(explosion_text, explosion_rect)
 
 class Alien:
-    def __init__(self, x, y, alien_type="basic", difficulty_level=1):
+    def __init__(self, x, y, alien_type="basic", difficulty_level=1, visual_assets=None, 
+                 alien_design_manager=None, difficulty_manager=None, spaceship_designer=None, progressive_spawner=None):
         self.x = x
         self.y = y
         self.initial_x = x
@@ -212,6 +255,401 @@ class Alien:
         self.rect = pygame.Rect(x, y, self.width, self.height)
         self.alien_type = alien_type
         self.difficulty_level = difficulty_level
+        self.visual_assets = visual_assets
+        self.alien_design_manager = alien_design_manager
+        self.difficulty_manager = difficulty_manager
+        self.spaceship_designer = spaceship_designer
+        self.progressive_spawner = progressive_spawner
+        
+        # Get level-appropriate stats with enhanced scaling
+        if difficulty_manager:
+            stats = difficulty_manager.get_alien_stats(alien_type, difficulty_level)
+            self.health = stats['health']
+            self.max_health = stats['health']
+            self.base_speed = stats['speed']
+            self.points = stats['points']
+        else:
+            # Fallback stats
+            self.health = 1
+            self.max_health = 1
+            self.base_speed = 1.0
+            self.points = {'basic': 10, 'scout': 15, 'warrior': 25, 'commander': 50}.get(alien_type, 10)
+        
+        # Enhanced movement with progressive spawner scaling
+        if progressive_spawner:
+            speed_mult = progressive_spawner.get_speed_multiplier(difficulty_level)
+            aggression_mult = progressive_spawner.get_aggression_multiplier(difficulty_level)
+        else:
+            speed_mult = 1.0 + (difficulty_level - 1) * 0.4
+            aggression_mult = 1.0 + (difficulty_level - 1) * 0.5
+        
+        self.vertical_speed = 0.5 * speed_mult
+        self.horizontal_speed = self.base_speed * speed_mult
+        self.horizontal_direction = random.choice([-1, 1])
+        
+        # Enhanced shooting with progressive aggression
+        base_shoot_chance = {'basic': 0.001, 'scout': 0.0015, 'warrior': 0.0008, 'commander': 0.002}.get(alien_type, 0.001)
+        self.shoot_chance = base_shoot_chance * aggression_mult
+        
+        # Color coding for health/damage
+        self.base_colors = {
+            'basic': (60, 120, 60),
+            'scout': (60, 120, 120), 
+            'warrior': (120, 60, 60),
+            'commander': (120, 60, 120)
+        }
+        self.color = self.base_colors.get(alien_type, (60, 120, 60))
+        
+        # Special abilities based on level
+        self.special_abilities = []
+        if difficulty_manager and difficulty_manager.should_use_special_ability(difficulty_level, 'rapid_fire'):
+            self.special_abilities.append('rapid_fire')
+        if difficulty_manager and difficulty_manager.should_use_special_ability(difficulty_level, 'teleport_dodge'):
+            self.special_abilities.append('teleport_dodge')
+        
+        # Damage flash effect
+        self.damage_flash = 0
+        
+        # Get spaceship design
+        self.spaceship_sprite = None
+        if spaceship_designer:
+            ship_class = spaceship_designer.get_ship_class_for_alien_type(alien_type)
+            self.spaceship_sprite = spaceship_designer.get_spaceship_design(ship_class, difficulty_level)
+            if self.spaceship_sprite:
+                # Adjust rect size to match spaceship
+                self.width = self.spaceship_sprite.get_width()
+                self.height = self.spaceship_sprite.get_height()
+                self.rect = pygame.Rect(x, y, self.width, self.height)
+                print(f"🛸 Created {alien_type} spaceship (Level {difficulty_level}) - {ship_class} class, Size: {self.width}x{self.height}")
+            else:
+                print(f"⚠️ Failed to create spaceship for {alien_type} (Level {difficulty_level})")
+        else:
+            print(f"⚠️ No spaceship designer available for {alien_type}")
+        
+        if not hasattr(self, 'spaceship_sprite') or not self.spaceship_sprite:
+            print(f"🔧 DEBUG: {alien_type} will use fallback rendering")
+    
+    def take_damage(self, damage=1):
+        """Take damage and return True if destroyed"""
+        self.health -= damage
+        self.damage_flash = 10  # Flash for 10 frames
+        
+        if self.health <= 0:
+            return True
+        return False
+    
+    def update(self):
+        """Enhanced update with special abilities and faster movement"""
+        # Reduce damage flash
+        if self.damage_flash > 0:
+            self.damage_flash -= 1
+        
+        # Enhanced movement patterns based on type and level with increased speed
+        if self.alien_type == 'scout':
+            # Scouts move in zigzag patterns at higher levels (faster)
+            if self.difficulty_level >= 3:
+                self.x += math.sin(pygame.time.get_ticks() * 0.02) * self.horizontal_speed * 0.8
+            else:
+                self.x += self.horizontal_direction * self.horizontal_speed * 1.2
+        elif self.alien_type == 'warrior':
+            # Warriors move more predictably but much faster
+            self.x += self.horizontal_direction * self.horizontal_speed * 1.0
+        elif self.alien_type == 'commander':
+            # Commanders have complex movement patterns (faster)
+            if self.difficulty_level >= 5:
+                self.x += math.sin(pygame.time.get_ticks() * 0.008) * self.horizontal_speed * 1.2
+            else:
+                self.x += self.horizontal_direction * self.horizontal_speed * 0.9
+        else:  # basic
+            # Basic aliens move horizontally (faster than before)
+            self.x += self.horizontal_direction * self.horizontal_speed * 1.1
+        
+        # Faster vertical movement
+        self.y += self.vertical_speed
+        
+        # Boundary checking with direction reversal
+        if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
+            self.horizontal_direction *= -1
+            self.x = max(0, min(SCREEN_WIDTH - self.width, self.x))
+        
+        # Update rect
+        self.rect.x = int(self.x)
+        self.rect.y = int(self.y)
+        
+        # Special ability: teleport dodge (high level commanders)
+        if 'teleport_dodge' in self.special_abilities and random.random() < 0.002:  # More frequent
+            self.x = random.randint(50, SCREEN_WIDTH - 50)
+    
+    def should_shoot(self):
+        """Enhanced shooting logic with higher frequency"""
+        base_chance = random.random() < self.shoot_chance
+        
+        # Rapid fire ability (more frequent)
+        if 'rapid_fire' in self.special_abilities:
+            return base_chance or (random.random() < self.shoot_chance * 0.8)
+        
+        return base_chance
+    
+    def draw(self, screen):
+        """Enhanced drawing with spaceship designs"""
+        # Use spaceship designs first
+        if hasattr(self, 'spaceship_sprite') and self.spaceship_sprite:
+            # Apply damage flash effect to spaceship
+            if self.damage_flash > 0:
+                # Create flashing effect
+                flash_surface = self.spaceship_sprite.copy()
+                flash_surface.fill((255, 255, 255, 100), special_flags=pygame.BLEND_ADD)
+                screen.blit(flash_surface, (self.x, self.y))
+            else:
+                screen.blit(self.spaceship_sprite, (self.x, self.y))
+            
+            # Health bar for multi-health aliens
+            if self.max_health > 1:
+                self.draw_health_bar(screen)
+            return
+        
+        # Fallback to alien design manager
+        if self.alien_design_manager:
+            alien_sprite = self.alien_design_manager.get_alien_design(self.alien_type, self.difficulty_level)
+            if alien_sprite:
+                # Apply damage flash effect
+                if self.damage_flash > 0:
+                    flash_surface = alien_sprite.copy()
+                    flash_surface.fill((255, 255, 255, 100), special_flags=pygame.BLEND_ADD)
+                    screen.blit(flash_surface, (self.x, self.y))
+                else:
+                    screen.blit(alien_sprite, (self.x, self.y))
+                
+                # Health bar for multi-health aliens
+                if self.max_health > 1:
+                    self.draw_health_bar(screen)
+                return
+        
+        # Final fallback to basic shapes (this should show what's happening)
+        print(f"🔧 DEBUG: Drawing fallback shape for {self.alien_type} at ({self.x}, {self.y})")
+        draw_color = self.color
+        if self.damage_flash > 0:
+            draw_color = (255, 255, 255)
+        
+        pygame.draw.rect(screen, draw_color, self.rect)
+        pygame.draw.ellipse(screen, (255, 255, 255), 
+                          (self.x + 3, self.y + 3, self.width - 6, self.height - 6))
+        
+        # Health bar for multi-health aliens
+        if self.max_health > 1:
+            self.draw_health_bar(screen)
+    
+    def draw_health_bar(self, screen):
+        """Draw health bar above alien"""
+        if self.health >= self.max_health:
+            return  # Don't show full health bar
+        
+        bar_width = self.width
+        bar_height = 3
+        bar_x = self.x
+        bar_y = self.y - 6
+        
+        # Background
+        pygame.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height))
+        
+        # Health
+        health_ratio = self.health / self.max_health
+        health_width = int(bar_width * health_ratio)
+        
+        if health_ratio > 0.6:
+            health_color = (0, 255, 0)
+        elif health_ratio > 0.3:
+            health_color = (255, 255, 0)
+        else:
+            health_color = (255, 0, 0)
+        
+        if health_width > 0:
+            pygame.draw.rect(screen, health_color, (bar_x, bar_y, health_width, bar_height))
+    
+    def is_at_bottom(self):
+        """Check if alien reached bottom with adjusted margin"""
+        return self.y + self.height >= SCREEN_HEIGHT - 100
+        
+        # Get level-appropriate stats
+        if difficulty_manager:
+            stats = difficulty_manager.get_alien_stats(alien_type, difficulty_level)
+            self.health = stats['health']
+            self.max_health = stats['health']
+            self.base_speed = stats['speed']
+            self.points = stats['points']
+        else:
+            # Fallback stats
+            self.health = 1
+            self.max_health = 1
+            self.base_speed = 1.0
+            self.points = {'basic': 10, 'scout': 15, 'warrior': 25, 'commander': 50}.get(alien_type, 10)
+        
+        # Enhanced movement with level scaling
+        self.vertical_speed = 0.5 * (1.0 + (difficulty_level - 1) * 0.1)  # Slightly faster descent per level
+        self.horizontal_speed = self.base_speed * (1.0 + (difficulty_level - 1) * 0.2)  # Significant horizontal speed increase
+        self.horizontal_direction = random.choice([-1, 1])
+        
+        # Enhanced shooting with level scaling
+        base_shoot_chance = {'basic': 0.001, 'scout': 0.0015, 'warrior': 0.0008, 'commander': 0.002}.get(alien_type, 0.001)
+        self.shoot_chance = base_shoot_chance * (1 + difficulty_level * 0.3)  # Much more aggressive at higher levels
+        
+        # Color coding for health/damage
+        self.base_colors = {
+            'basic': (60, 120, 60),
+            'scout': (60, 120, 120), 
+            'warrior': (120, 60, 60),
+            'commander': (120, 60, 120)
+        }
+        self.color = self.base_colors.get(alien_type, (60, 120, 60))
+        
+        # Special abilities based on level
+        self.special_abilities = []
+        if difficulty_manager and difficulty_manager.should_use_special_ability(difficulty_level, 'rapid_fire'):
+            self.special_abilities.append('rapid_fire')
+        if difficulty_manager and difficulty_manager.should_use_special_ability(difficulty_level, 'teleport_dodge'):
+            self.special_abilities.append('teleport_dodge')
+        
+        # Damage flash effect
+        self.damage_flash = 0
+        
+    def take_damage(self, damage=1):
+        """Take damage and return True if destroyed"""
+        self.health -= damage
+        self.damage_flash = 10  # Flash for 10 frames
+        
+        if self.health <= 0:
+            return True
+        return False
+    
+    def update(self):
+        """Enhanced update with special abilities"""
+        # Reduce damage flash
+        if self.damage_flash > 0:
+            self.damage_flash -= 1
+        
+        # Enhanced movement patterns based on type and level
+        if self.alien_type == 'scout':
+            # Scouts move in zigzag patterns at higher levels
+            if self.difficulty_level >= 3:
+                self.x += math.sin(pygame.time.get_ticks() * 0.01) * self.horizontal_speed * 0.5
+        elif self.alien_type == 'warrior':
+            # Warriors move more predictably but faster
+            self.x += self.horizontal_direction * self.horizontal_speed * 0.7
+        elif self.alien_type == 'commander':
+            # Commanders have complex movement patterns
+            if self.difficulty_level >= 5:
+                self.x += math.sin(pygame.time.get_ticks() * 0.005) * self.horizontal_speed
+        else:  # basic
+            # Basic aliens move horizontally
+            self.x += self.horizontal_direction * self.horizontal_speed
+        
+        # Vertical movement (constant for all types)
+        self.y += self.vertical_speed
+        
+        # Boundary checking with direction reversal
+        if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
+            self.horizontal_direction *= -1
+            self.x = max(0, min(SCREEN_WIDTH - self.width, self.x))
+        
+        # Update rect
+        self.rect.x = int(self.x)
+        self.rect.y = int(self.y)
+        
+        # Special ability: teleport dodge (high level commanders)
+        if 'teleport_dodge' in self.special_abilities and random.random() < 0.001:
+            self.x = random.randint(50, SCREEN_WIDTH - 50)
+    
+    def should_shoot(self):
+        """Enhanced shooting logic"""
+        base_chance = random.random() < self.shoot_chance
+        
+        # Rapid fire ability
+        if 'rapid_fire' in self.special_abilities:
+            return base_chance or (random.random() < self.shoot_chance * 0.5)
+        
+        return base_chance
+    
+    def draw(self, screen):
+        """Enhanced drawing with level-appropriate designs and damage effects"""
+        # Use enhanced alien designs if available
+        if self.alien_design_manager:
+            alien_sprite = self.alien_design_manager.get_alien_design(self.alien_type, self.difficulty_level)
+            if alien_sprite:
+                # Apply damage flash effect
+                if self.damage_flash > 0:
+                    # Create flashing effect
+                    flash_surface = alien_sprite.copy()
+                    flash_surface.fill((255, 255, 255, 100), special_flags=pygame.BLEND_ADD)
+                    screen.blit(flash_surface, (self.x, self.y))
+                else:
+                    screen.blit(alien_sprite, (self.x, self.y))
+                
+                # Health bar for multi-health aliens
+                if self.max_health > 1:
+                    self.draw_health_bar(screen)
+                return
+        
+        # Fallback to original drawing with damage effects
+        draw_color = self.color
+        if self.damage_flash > 0:
+            # Flash white when damaged
+            draw_color = (255, 255, 255)
+        
+        pygame.draw.rect(screen, draw_color, self.rect)
+        
+        # Draw different shapes based on alien type (enhanced)
+        if self.alien_type == "scout":
+            pygame.draw.polygon(screen, (255, 255, 255), [
+                (self.x + self.width//2, self.y + 3),
+                (self.x + self.width - 3, self.y + self.height - 3),
+                (self.x + 3, self.y + self.height - 3)
+            ])
+        elif self.alien_type == "warrior":
+            pygame.draw.polygon(screen, (255, 255, 255), [
+                (self.x + self.width//2, self.y + 3),
+                (self.x + self.width - 3, self.y + self.height//2),
+                (self.x + self.width//2, self.y + self.height - 3),
+                (self.x + 3, self.y + self.height//2)
+            ])
+        elif self.alien_type == "commander":
+            center_x = self.x + self.width // 2
+            center_y = self.y + self.height // 2
+            pygame.draw.circle(screen, (255, 255, 255), (center_x, center_y), 8)
+            pygame.draw.circle(screen, draw_color, (center_x, center_y), 5)
+        else:  # basic
+            pygame.draw.ellipse(screen, (255, 255, 255), 
+                              (self.x + 3, self.y + 3, self.width - 6, self.height - 6))
+        
+        # Health bar for multi-health aliens
+        if self.max_health > 1:
+            self.draw_health_bar(screen)
+    
+    def draw_health_bar(self, screen):
+        """Draw health bar above alien"""
+        if self.health >= self.max_health:
+            return  # Don't show full health bar
+        
+        bar_width = self.width
+        bar_height = 3
+        bar_x = self.x
+        bar_y = self.y - 6
+        
+        # Background
+        pygame.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height))
+        
+        # Health
+        health_ratio = self.health / self.max_health
+        health_width = int(bar_width * health_ratio)
+        
+        if health_ratio > 0.6:
+            health_color = (0, 255, 0)
+        elif health_ratio > 0.3:
+            health_color = (255, 255, 0)
+        else:
+            health_color = (255, 0, 0)
+        
+        if health_width > 0:
+            pygame.draw.rect(screen, health_color, (bar_x, bar_y, health_width, bar_height))
         
         # Constant vertical descent speed (consistent across all levels)
         self.vertical_speed = 0.5  # Slower descent for better gameplay
@@ -261,18 +699,24 @@ class Alien:
         return random.random() < self.shoot_chance
         
     def draw(self, screen):
+        # Use enhanced alien sprites if available
+        if self.visual_assets:
+            alien_sprite = self.visual_assets.get_sprite(f'alien_{self.alien_type}')
+            if alien_sprite:
+                screen.blit(alien_sprite, (self.x, self.y))
+                return
+        
+        # Fallback to original drawing
         pygame.draw.rect(screen, self.color, self.rect)
         
         # Draw different shapes based on alien type
         if self.alien_type == "scout":
-            # Triangle shape for scouts
             pygame.draw.polygon(screen, WHITE, [
                 (self.x + self.width//2, self.y + 3),
                 (self.x + self.width - 3, self.y + self.height - 3),
                 (self.x + 3, self.y + self.height - 3)
             ])
         elif self.alien_type == "warrior":
-            # Diamond shape for warriors
             pygame.draw.polygon(screen, WHITE, [
                 (self.x + self.width//2, self.y + 3),
                 (self.x + self.width - 3, self.y + self.height//2),
@@ -280,13 +724,11 @@ class Alien:
                 (self.x + 3, self.y + self.height//2)
             ])
         elif self.alien_type == "commander":
-            # Star shape for commanders
             center_x = self.x + self.width // 2
             center_y = self.y + self.height // 2
             pygame.draw.circle(screen, WHITE, (center_x, center_y), 8)
             pygame.draw.circle(screen, self.color, (center_x, center_y), 5)
         else:  # basic
-            # Simple oval for basic aliens
             pygame.draw.ellipse(screen, WHITE, 
                               (self.x + 3, self.y + 3, self.width - 6, self.height - 6))
     
@@ -295,13 +737,506 @@ class Alien:
         return self.y + self.height >= SCREEN_HEIGHT - 100  # More margin for player area
 
 class CosmicFormation:
-    def __init__(self, difficulty_level=1):
+    def __init__(self, difficulty_level=1, visual_assets=None, alien_design_manager=None, 
+                 difficulty_manager=None, spaceship_designer=None, progressive_spawner=None):
         self.difficulty_level = difficulty_level
+        self.visual_assets = visual_assets
+        self.alien_design_manager = alien_design_manager
+        self.difficulty_manager = difficulty_manager
+        self.spaceship_designer = spaceship_designer
+        self.progressive_spawner = progressive_spawner
         self.active_aliens = []
         self.formation_queue = []
-        self.max_active_aliens = 3  # Limit active aliens on screen
+        
+        # Get progressive spawning configuration
+        if progressive_spawner:
+            self.max_active_aliens = progressive_spawner.get_max_active_aliens(difficulty_level)
+            self.spawn_delay = progressive_spawner.get_spawn_delay(difficulty_level)
+        else:
+            # Fallback progressive system
+            if difficulty_level == 1:
+                self.max_active_aliens = 3
+            elif difficulty_level == 2:
+                self.max_active_aliens = 4
+            elif difficulty_level <= 5:
+                self.max_active_aliens = 5
+            else:
+                self.max_active_aliens = 6
+            self.spawn_delay = max(60, 180 - (difficulty_level - 1) * 10)
+        
         self.spawn_timer = 0
-        self.spawn_delay = 180  # 3 seconds at 60 FPS for better pacing
+        
+        # Generate formation based on level
+        self.generate_formation()
+        
+        print(f"🌌 Generated {len(self.formation_queue)} aliens for Level {difficulty_level} formation")
+        print(f"📊 Max active: {self.max_active_aliens}, Spawn delay: {self.spawn_delay/60:.1f}s")
+    
+    def generate_formation(self):
+        """Generate level-appropriate formation with enhanced difficulty"""
+        formation_patterns = {
+            1: self.create_line_formation,
+            2: self.create_v_formation, 
+            3: self.create_arc_formation,
+            4: self.create_triangle_formation,
+            5: self.create_diamond_formation,
+            6: self.create_spiral_formation,
+            7: self.create_cross_formation,
+            8: self.create_wave_formation
+        }
+        
+        pattern_index = ((self.difficulty_level - 1) % 8) + 1
+        formation_func = formation_patterns.get(pattern_index, self.create_line_formation)
+        
+        # Create formation with level-appropriate alien types
+        formation_func()
+        
+        # Shuffle for more dynamic spawning
+        random.shuffle(self.formation_queue)
+    
+    def create_line_formation(self):
+        """Enhanced line formation with progressive scaling"""
+        base_count = 5
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            alien_count = int(base_count * size_mult)
+        else:
+            alien_count = base_count + (self.difficulty_level - 1) // 2
+        
+        spacing = SCREEN_WIDTH // (alien_count + 1)
+        
+        for i in range(alien_count):
+            x = spacing * (i + 1) - 17
+            y = 50
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_v_formation(self):
+        """Enhanced V formation with progressive scaling"""
+        base_count = 8
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            alien_count = int(base_count * size_mult)
+        else:
+            alien_count = base_count + (self.difficulty_level - 1) // 2
+        
+        center_x = SCREEN_WIDTH // 2
+        
+        for i in range(alien_count):
+            if i % 2 == 0:  # Left side
+                x = center_x - (i // 2 + 1) * 40
+                y = 50 + (i // 2) * 15
+            else:  # Right side
+                x = center_x + (i // 2 + 1) * 40
+                y = 50 + (i // 2) * 15
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_arc_formation(self):
+        """Enhanced arc formation with progressive scaling"""
+        base_count = 12
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            alien_count = int(base_count * size_mult)
+        else:
+            alien_count = base_count + (self.difficulty_level - 1) // 2
+        
+        center_x = SCREEN_WIDTH // 2
+        radius = 120
+        
+        for i in range(alien_count):
+            angle = math.pi * (i / (alien_count - 1))  # Half circle
+            x = center_x + radius * math.cos(angle) - 17
+            y = 80 + radius * 0.3 * math.sin(angle)
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_triangle_formation(self):
+        """Enhanced triangle formation with progressive scaling"""
+        base_rows = 4
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            rows = int(base_rows * size_mult)
+        else:
+            rows = base_rows + (self.difficulty_level - 1) // 3
+        
+        for row in range(rows):
+            aliens_in_row = row + 1
+            row_width = aliens_in_row * 40
+            start_x = (SCREEN_WIDTH - row_width) // 2
+            
+            for col in range(aliens_in_row):
+                x = start_x + col * 40
+                y = 50 + row * 30
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_diamond_formation(self):
+        """Enhanced diamond formation with progressive scaling"""
+        base_size = 3
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            size = int(base_size * size_mult)
+        else:
+            size = base_size + (self.difficulty_level - 1) // 4
+        
+        center_x = SCREEN_WIDTH // 2
+        
+        # Top half
+        for row in range(size):
+            aliens_in_row = row + 1
+            for col in range(aliens_in_row):
+                x = center_x + (col - aliens_in_row // 2) * 40
+                y = 50 + row * 25
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+        
+        # Bottom half
+        for row in range(size - 1, 0, -1):
+            aliens_in_row = row
+            for col in range(aliens_in_row):
+                x = center_x + (col - aliens_in_row // 2) * 40
+                y = 50 + (2 * size - row - 1) * 25
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_spiral_formation(self):
+        """Enhanced spiral formation with progressive scaling"""
+        base_count = 15
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            alien_count = int(base_count * size_mult)
+        else:
+            alien_count = base_count + (self.difficulty_level - 1) * 2
+        
+        center_x = SCREEN_WIDTH // 2
+        center_y = 100
+        
+        for i in range(alien_count):
+            angle = i * 0.5
+            radius = 20 + i * 3
+            
+            x = center_x + radius * math.cos(angle) - 17
+            y = center_y + radius * math.sin(angle) * 0.5
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_cross_formation(self):
+        """Enhanced cross formation with progressive scaling"""
+        base_length = 4
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            arm_length = int(base_length * size_mult)
+        else:
+            arm_length = base_length + (self.difficulty_level - 1) // 3
+        
+        center_x = SCREEN_WIDTH // 2
+        center_y = 100
+        
+        # Horizontal arm
+        for i in range(-arm_length, arm_length + 1):
+            x = center_x + i * 35
+            y = center_y
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+        
+        # Vertical arm
+        for i in range(-arm_length, arm_length + 1):
+            if i != 0:  # Don't duplicate center
+                x = center_x
+                y = center_y + i * 30
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_wave_formation(self):
+        """Enhanced wave formation with progressive scaling"""
+        base_waves = 2
+        if self.progressive_spawner:
+            size_mult = self.progressive_spawner.get_formation_size_multiplier(self.difficulty_level)
+            wave_count = int(base_waves * size_mult)
+        else:
+            wave_count = base_waves + (self.difficulty_level - 1) // 4
+        
+        aliens_per_wave = 8
+        
+        for wave in range(wave_count):
+            for i in range(aliens_per_wave):
+                x = (SCREEN_WIDTH // aliens_per_wave) * i + 50
+                y = 60 + wave * 40 + 20 * math.sin(i * 0.8)
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def get_level_appropriate_alien_type(self):
+        """Get alien type appropriate for current level"""
+        if self.difficulty_manager:
+            return self.difficulty_manager.get_alien_type_for_level(self.difficulty_level)
+        
+        # Fallback distribution with more variety at higher levels
+        if self.difficulty_level <= 2:
+            return random.choice(['basic', 'basic', 'basic', 'scout'])
+        elif self.difficulty_level <= 5:
+            return random.choice(['basic', 'basic', 'scout', 'scout', 'warrior'])
+        else:
+            return random.choice(['basic', 'scout', 'scout', 'warrior', 'warrior', 'commander'])
+    
+    def update(self):
+        """Update formation with enhanced spawning"""
+        # Update existing aliens
+        for alien in self.active_aliens[:]:
+            alien.update()
+            
+            # Remove aliens that are off screen or at bottom
+            if alien.is_at_bottom() or alien.y > SCREEN_HEIGHT:
+                self.active_aliens.remove(alien)
+        
+        # Spawn new aliens with progressive system
+        self.spawn_timer -= 1
+        if (self.spawn_timer <= 0 and 
+            len(self.active_aliens) < self.max_active_aliens and 
+            len(self.formation_queue) > 0):
+            
+            x, y, alien_type = self.formation_queue.pop(0)
+            new_alien = Alien(x, y, alien_type, self.difficulty_level, 
+                            self.visual_assets, self.alien_design_manager, self.difficulty_manager,
+                            self.spaceship_designer, self.progressive_spawner)
+            self.active_aliens.append(new_alien)
+            self.spawn_timer = self.spawn_delay
+            
+            print(f"👾 Spawned {alien_type} spaceship at ({x}, {y}) - Active: {len(self.active_aliens)}/{self.max_active_aliens}")
+    
+    def draw(self, screen):
+        """Draw all active aliens"""
+        for alien in self.active_aliens:
+            alien.draw(screen)
+    
+    def get_total_aliens_remaining(self):
+        """Get total aliens remaining"""
+        return len(self.active_aliens) + len(self.formation_queue)
+    
+    def get_shooting_aliens(self):
+        """Get aliens that can shoot"""
+        return self.active_aliens
+    
+    def generate_formation(self):
+        """Generate level-appropriate formation with enhanced difficulty"""
+        formation_patterns = {
+            1: self.create_line_formation,
+            2: self.create_v_formation, 
+            3: self.create_arc_formation,
+            4: self.create_triangle_formation,
+            5: self.create_diamond_formation,
+            6: self.create_spiral_formation,
+            7: self.create_cross_formation,
+            8: self.create_wave_formation
+        }
+        
+        pattern_index = ((self.difficulty_level - 1) % 8) + 1
+        formation_func = formation_patterns.get(pattern_index, self.create_line_formation)
+        
+        # Create formation with level-appropriate alien types
+        formation_func()
+        
+        # Shuffle for more dynamic spawning
+        random.shuffle(self.formation_queue)
+    
+    def create_line_formation(self):
+        """Enhanced line formation with level scaling"""
+        base_count = 5
+        level_bonus = (self.difficulty_level - 1) // 2  # Extra aliens every 2 levels
+        alien_count = base_count + level_bonus
+        
+        spacing = SCREEN_WIDTH // (alien_count + 1)
+        
+        for i in range(alien_count):
+            x = spacing * (i + 1) - 17
+            y = 50
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_v_formation(self):
+        """Enhanced V formation"""
+        base_count = 8
+        level_bonus = (self.difficulty_level - 1) // 2
+        alien_count = base_count + level_bonus
+        
+        center_x = SCREEN_WIDTH // 2
+        
+        for i in range(alien_count):
+            if i % 2 == 0:  # Left side
+                x = center_x - (i // 2 + 1) * 40
+                y = 50 + (i // 2) * 15
+            else:  # Right side
+                x = center_x + (i // 2 + 1) * 40
+                y = 50 + (i // 2) * 15
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_arc_formation(self):
+        """Enhanced arc formation"""
+        base_count = 12
+        level_bonus = (self.difficulty_level - 1) // 2
+        alien_count = base_count + level_bonus
+        
+        center_x = SCREEN_WIDTH // 2
+        radius = 120
+        
+        for i in range(alien_count):
+            angle = math.pi * (i / (alien_count - 1))  # Half circle
+            x = center_x + radius * math.cos(angle) - 17
+            y = 80 + radius * 0.3 * math.sin(angle)
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_triangle_formation(self):
+        """Enhanced triangle formation"""
+        rows = 4 + (self.difficulty_level - 1) // 3  # More rows at higher levels
+        
+        for row in range(rows):
+            aliens_in_row = row + 1
+            row_width = aliens_in_row * 40
+            start_x = (SCREEN_WIDTH - row_width) // 2
+            
+            for col in range(aliens_in_row):
+                x = start_x + col * 40
+                y = 50 + row * 30
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_diamond_formation(self):
+        """Enhanced diamond formation"""
+        size = 3 + (self.difficulty_level - 1) // 4  # Larger diamonds at higher levels
+        center_x = SCREEN_WIDTH // 2
+        
+        # Top half
+        for row in range(size):
+            aliens_in_row = row + 1
+            for col in range(aliens_in_row):
+                x = center_x + (col - aliens_in_row // 2) * 40
+                y = 50 + row * 25
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+        
+        # Bottom half
+        for row in range(size - 1, 0, -1):
+            aliens_in_row = row
+            for col in range(aliens_in_row):
+                x = center_x + (col - aliens_in_row // 2) * 40
+                y = 50 + (2 * size - row - 1) * 25
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_spiral_formation(self):
+        """Enhanced spiral formation"""
+        alien_count = 15 + (self.difficulty_level - 1) * 2
+        center_x = SCREEN_WIDTH // 2
+        center_y = 100
+        
+        for i in range(alien_count):
+            angle = i * 0.5
+            radius = 20 + i * 3
+            
+            x = center_x + radius * math.cos(angle) - 17
+            y = center_y + radius * math.sin(angle) * 0.5
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+    
+    def create_cross_formation(self):
+        """Enhanced cross formation"""
+        arm_length = 4 + (self.difficulty_level - 1) // 3
+        center_x = SCREEN_WIDTH // 2
+        center_y = 100
+        
+        # Horizontal arm
+        for i in range(-arm_length, arm_length + 1):
+            x = center_x + i * 35
+            y = center_y
+            
+            alien_type = self.get_level_appropriate_alien_type()
+            self.formation_queue.append((x, y, alien_type))
+        
+        # Vertical arm
+        for i in range(-arm_length, arm_length + 1):
+            if i != 0:  # Don't duplicate center
+                x = center_x
+                y = center_y + i * 30
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def create_wave_formation(self):
+        """Enhanced wave formation"""
+        wave_count = 2 + (self.difficulty_level - 1) // 4
+        aliens_per_wave = 8
+        
+        for wave in range(wave_count):
+            for i in range(aliens_per_wave):
+                x = (SCREEN_WIDTH // aliens_per_wave) * i + 50
+                y = 60 + wave * 40 + 20 * math.sin(i * 0.8)
+                
+                alien_type = self.get_level_appropriate_alien_type()
+                self.formation_queue.append((x, y, alien_type))
+    
+    def get_level_appropriate_alien_type(self):
+        """Get alien type appropriate for current level"""
+        if self.difficulty_manager:
+            return self.difficulty_manager.get_alien_type_for_level(self.difficulty_level)
+        
+        # Fallback distribution
+        if self.difficulty_level <= 2:
+            return random.choice(['basic', 'basic', 'basic', 'scout'])
+        elif self.difficulty_level <= 5:
+            return random.choice(['basic', 'basic', 'scout', 'warrior'])
+        else:
+            return random.choice(['basic', 'scout', 'warrior', 'commander'])
+    
+    def update(self):
+        """Update formation with enhanced spawning"""
+        # Update existing aliens
+        for alien in self.active_aliens[:]:
+            alien.update()
+            
+            # Remove aliens that are off screen or at bottom
+            if alien.is_at_bottom() or alien.y > SCREEN_HEIGHT:
+                self.active_aliens.remove(alien)
+        
+        # Spawn new aliens
+        self.spawn_timer -= 1
+        if (self.spawn_timer <= 0 and 
+            len(self.active_aliens) < self.max_active_aliens and 
+            len(self.formation_queue) > 0):
+            
+            x, y, alien_type = self.formation_queue.pop(0)
+            new_alien = Alien(x, y, alien_type, self.difficulty_level, 
+                            self.visual_assets, self.alien_design_manager, self.difficulty_manager,
+                            self.spaceship_designer, self.progressive_spawner)
+            self.active_aliens.append(new_alien)
+            self.spawn_timer = self.spawn_delay
+            
+            print(f"👾 Spawned {alien_type} alien at ({x}, {y})")
+    
+    def draw(self, screen):
+        """Draw all active aliens"""
+        for alien in self.active_aliens:
+            alien.draw(screen)
+    
+    def get_total_aliens_remaining(self):
+        """Get total aliens remaining"""
+        return len(self.active_aliens) + len(self.formation_queue)
         
         # Generate formation for this level
         self.generate_formation()
@@ -515,7 +1450,9 @@ class CosmicFormation:
             self.spawn_timer <= 0):
             
             x, y, alien_type = self.formation_queue.pop(0)
-            new_alien = Alien(x, y, alien_type, self.difficulty_level)
+            new_alien = Alien(x, y, alien_type, self.difficulty_level, 
+                            self.visual_assets, self.alien_design_manager, self.difficulty_manager,
+                            self.spaceship_designer, self.progressive_spawner)
             self.active_aliens.append(new_alien)
             self.spawn_timer = self.spawn_delay
             print(f"👾 Spawned {alien_type} alien at ({x:.0f}, {y:.0f})")
@@ -565,12 +1502,22 @@ class Game:
         self.clock = pygame.time.Clock()
         self.font_manager = FontManager()
         
+        # Enhanced visual and scoring systems
+        print("🎮 Initializing Cosmic Raiders enhanced systems...")
+        self.high_score_manager = HighScoreManager()
+        self.visual_assets = VisualAssets()
+        self.alien_design_manager = AlienDesignManager()
+        self.difficulty_manager = DifficultyManager()
+        self.ui_manager = UIManager(SCREEN_WIDTH, SCREEN_HEIGHT, self.font_manager)
+        self.spaceship_designer = SpaceshipDesigner()
+        self.progressive_spawner = ProgressiveSpawner(self.difficulty_manager)
+        
         # Game state
         self.state = GameState.MENU
         self.score = 0
         self.lives = 3
         self.max_lives = 3
-        self.high_score = 0
+        self.high_score = self.high_score_manager.get_high_score()
         self.wave = 1
         self.difficulty_level = 1
         
@@ -587,11 +1534,13 @@ class Game:
         self.player_invulnerable_timer = 0
         self.player_invulnerable_duration = 60  # frames of invulnerability after hit
         
-        # Initialize game objects
-        self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50)
+        # Initialize game objects with enhanced visuals and progressive spawning
+        self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50, self.visual_assets)
         self.player_bullets = []  # Multiple bullets allowed
         self.alien_bullets = []
-        self.cosmic_formation = CosmicFormation(self.difficulty_level)
+        self.cosmic_formation = CosmicFormation(self.difficulty_level, self.visual_assets, 
+                                              self.alien_design_manager, self.difficulty_manager,
+                                              self.spaceship_designer, self.progressive_spawner)
         self.hit_effects = []  # Visual effects for hits
         
         # Shooting mechanics - Fast and responsive
@@ -626,7 +1575,7 @@ class Game:
         """Create multiple bullets from player position - fast and responsive"""
         bullet_x = self.player.x + self.player.width // 2 - 2
         bullet_y = self.player.y
-        self.player_bullets.append(Bullet(bullet_x, bullet_y, 1))
+        self.player_bullets.append(Bullet(bullet_x, bullet_y, 1, 1.0, self.visual_assets))
         print(f"🔫 Bullet fired! ({len(self.player_bullets)} bullets active)")
         
     def shoot_alien_bullet(self, alien):
@@ -634,7 +1583,7 @@ class Game:
         bullet_x = alien.x + alien.width // 2 - 2
         bullet_y = alien.y + alien.height
         speed_multiplier = 1.0 + (self.difficulty_level - 1) * 0.1  # Slight speed increase per level
-        self.alien_bullets.append(Bullet(bullet_x, bullet_y, -1, speed_multiplier))
+        self.alien_bullets.append(Bullet(bullet_x, bullet_y, -1, speed_multiplier, self.visual_assets))
         
     def update_cosmic_formation(self):
         """Update cosmic formation and handle alien shooting"""
@@ -707,7 +1656,9 @@ class Game:
                 #     print(f"🎁 Bonus life! Lives: {self.lives}")
                 
                 # Create new cosmic formation for next level
-                self.cosmic_formation = CosmicFormation(self.difficulty_level)
+                self.cosmic_formation = CosmicFormation(self.difficulty_level, self.visual_assets,
+                                                      self.alien_design_manager, self.difficulty_manager,
+                                                      self.spaceship_designer, self.progressive_spawner)
                 print(f"🌊 Advancing to Level {self.difficulty_level}! Lives reset to {self.lives}")
                 
         elif self.state == GameState.LEVEL_TRANSITION:
@@ -718,24 +1669,31 @@ class Game:
                 print(f"🚀 Level {self.difficulty_level} begins!")
                 
     def check_collisions(self):
-        """Check all collision scenarios"""
-        # Player bullets vs aliens (multiple bullets system)
+        """Check all collision scenarios with enhanced damage system"""
+        # Player bullets vs aliens (multiple bullets system with health)
         for bullet in self.player_bullets[:]:
             for alien in self.cosmic_formation.active_aliens[:]:
                 if bullet.rect.colliderect(alien.rect):
-                    # Create hit effect
-                    effect_x = alien.x + alien.width // 2
-                    effect_y = alien.y + alien.height // 2
-                    self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion"))
-                    
-                    # Remove bullet and alien
-                    points = alien.points
+                    # Remove bullet first
                     self.player_bullets.remove(bullet)
-                    self.cosmic_formation.remove_alien(alien)
-                    self.score += points
                     
-                    # Visual feedback
-                    print(f"💥 {alien.alien_type.title()} destroyed! +{points} points (Score: {self.score}) [{len(self.player_bullets)} bullets remaining]")
+                    # Alien takes damage
+                    if alien.take_damage():
+                        # Alien destroyed
+                        self.score += alien.points
+                        print(f"💥 {alien.alien_type.capitalize()} destroyed! +{alien.points} points (Score: {self.score}) [{len(self.player_bullets)} bullets remaining]")
+                        
+                        # Create explosion effect
+                        effect_x = alien.x + alien.width // 2
+                        effect_y = alien.y + alien.height // 2
+                        self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion", self.visual_assets))
+                        
+                        # Remove alien
+                        self.cosmic_formation.active_aliens.remove(alien)
+                    else:
+                        # Alien damaged but not destroyed
+                        print(f"🎯 {alien.alien_type.capitalize()} hit! Health: {alien.health}/{alien.max_health}")
+                    
                     break
                     
         # Alien bullets vs player (with invulnerability frames)
@@ -752,7 +1710,7 @@ class Game:
                     # Create hit effect on player
                     effect_x = self.player.x + self.player.width // 2
                     effect_y = self.player.y + self.player.height // 2
-                    self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion"))
+                    self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion", self.visual_assets))
                     
                     print(f"⚠️ PLAYER HIT! Lives remaining: {self.lives}")
                     break
@@ -776,10 +1734,19 @@ class Game:
                 self.high_score = self.score
             print("💀 Game Over: No lives remaining!")
             
+    def draw_background(self):
+        """Draw enhanced space background"""
+        bg_sprite = self.visual_assets.get_sprite('background')
+        if bg_sprite:
+            self.screen.blit(bg_sprite, (0, 0))
+        else:
+            # Fallback to gradient
+            self.screen.fill(BLACK)
+    
     def draw_menu(self):
         """Draw the main menu"""
-        # Background
-        self.screen.fill(BLACK)
+        # Enhanced background
+        self.draw_background()
         
         # Title
         title_text, title_rect = self.font_manager.render_text(
@@ -822,56 +1789,50 @@ class Game:
             )
             self.screen.blit(inst_text, inst_rect)
         
-        # High score
-        if self.high_score > 0:
+        # High score display (enhanced)
+        current_high_score = self.high_score_manager.get_high_score()
+        if current_high_score > 0:
             high_score_text, high_score_rect = self.font_manager.render_text(
-                f"HIGH SCORE: {self.high_score}", 'medium', GREEN, (SCREEN_WIDTH//2, 100)
+                f"HIGH SCORE: {current_high_score:,}", 'large', GREEN, (SCREEN_WIDTH//2, 100)
             )
             self.screen.blit(high_score_text, high_score_rect)
+            
+            # High score details
+            high_score_date = self.high_score_manager.get_high_score_date()
+            high_score_level = self.high_score_manager.get_high_score_level()
+            details_text, details_rect = self.font_manager.render_text(
+                f"Level {high_score_level} • {high_score_date}", 'small', GRAY, (SCREEN_WIDTH//2, 130)
+            )
+            self.screen.blit(details_text, details_rect)
     
     def draw_game_ui(self):
-        """Draw game UI during gameplay"""
-        # Lives (prominent display in top-left)
-        lives_color = RED if self.lives == 1 else YELLOW if self.lives == 2 else GREEN
-        lives_text, _ = self.font_manager.render_text(f"LIVES: {self.lives}", 'large', lives_color)
-        self.screen.blit(lives_text, (10, 10))
-        
-        # Score
-        score_text, _ = self.font_manager.render_text(f"SCORE: {self.score}", 'large', WHITE)
-        self.screen.blit(score_text, (10, 50))
-        
-        # Wave and difficulty
-        wave_text, _ = self.font_manager.render_text(f"WAVE: {self.wave}", 'large', WHITE)
-        self.screen.blit(wave_text, (10, 90))
-        
-        difficulty_text, _ = self.font_manager.render_text(f"LEVEL: {self.difficulty_level}", 'medium', CYAN)
-        self.screen.blit(difficulty_text, (10, 130))
-        
-        # Alien count and formation info
-        active_aliens = len(self.cosmic_formation.active_aliens)
-        total_remaining = self.cosmic_formation.get_total_aliens_remaining()
-        aliens_text, _ = self.font_manager.render_text(f"ACTIVE: {active_aliens}/3 | REMAINING: {total_remaining}", 'medium', CYAN)
-        self.screen.blit(aliens_text, (10, 155))
-        
-        # Formation info
+        """Draw compact, non-intrusive game UI with progressive info"""
+        # Prepare game data for UI manager
         formation_names = {1: "LINE", 2: "V-SHAPE", 3: "ARC", 4: "TRIANGLE", 5: "DIAMOND", 6: "SPIRAL", 7: "CROSS", 8: "WAVE"}
         formation_name = formation_names.get(((self.difficulty_level - 1) % 8) + 1, "CUSTOM")
-        formation_text, _ = self.font_manager.render_text(f"FORMATION: {formation_name}", 'medium', YELLOW)
-        self.screen.blit(formation_text, (10, 180))
         
-        # Active bullets counter
-        bullet_count = len(self.player_bullets)
-        alien_bullet_count = len(self.alien_bullets)
-        bullet_color = GREEN if bullet_count > 0 else GRAY
-        bullets_text, _ = self.font_manager.render_text(f"BULLETS: {bullet_count}", 'small', bullet_color)
-        self.screen.blit(bullets_text, (10, 205))
+        # Get progressive spawning info
+        max_aliens = self.cosmic_formation.max_active_aliens if hasattr(self.cosmic_formation, 'max_active_aliens') else 3
         
-        alien_bullets_text, _ = self.font_manager.render_text(f"ENEMY: {alien_bullet_count}", 'small', RED)
-        self.screen.blit(alien_bullets_text, (10, 225))
+        game_data = {
+            'lives': self.lives,
+            'level': self.difficulty_level,
+            'wave': self.wave,
+            'score': self.score,
+            'high_score': self.high_score,
+            'active_aliens': len(self.cosmic_formation.active_aliens),
+            'remaining_aliens': self.cosmic_formation.get_total_aliens_remaining(),
+            'total_aliens': len(self.cosmic_formation.formation_queue) + len(self.cosmic_formation.active_aliens),
+            'formation_name': formation_name,
+            'active_bullets': len(self.player_bullets),
+            'max_aliens': max_aliens,
+            'in_game': True,
+            'show_progress': True,
+            'show_stats': len(self.player_bullets) > 3  # Only show bullet count when many active
+        }
         
-        # Movement speed info
-        speed_text, _ = self.font_manager.render_text(f"SPEED: {1.0 + (self.difficulty_level - 1) * 0.2:.1f}x", 'small', YELLOW)
-        self.screen.blit(speed_text, (10, 245))
+        # Use compact UI manager
+        self.ui_manager.draw_compact_hud(self.screen, game_data)
         
         # Player status
         if self.player_invulnerable_timer > 0:
@@ -918,9 +1879,11 @@ class Game:
         self.screen.blit(score_text, score_rect)
         
         # Next level preview
-        next_rows, next_cols = self.alien_grid.get_grid_size(self.difficulty_level + 1)
+        next_formation_names = {1: "LINE", 2: "V-SHAPE", 3: "ARC", 4: "TRIANGLE", 5: "DIAMOND", 6: "SPIRAL", 7: "CROSS", 8: "WAVE"}
+        next_formation_index = ((self.difficulty_level) % 8) + 1
+        next_formation = next_formation_names.get(next_formation_index, "CUSTOM")
         next_level_text, next_level_rect = self.font_manager.render_text(
-            f"Next: Level {self.difficulty_level + 1} ({next_rows}x{next_cols} aliens)", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
+            f"Next: Level {self.difficulty_level + 1} ({next_formation} Formation)", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
         )
         self.screen.blit(next_level_text, next_level_rect)
         
@@ -958,9 +1921,11 @@ class Game:
         self.screen.blit(score_text, score_rect)
         
         # Next level preview
-        next_rows, next_cols = self.alien_grid.get_grid_size(self.difficulty_level + 1)
+        next_formation_names = {1: "LINE", 2: "V-SHAPE", 3: "ARC", 4: "TRIANGLE", 5: "DIAMOND", 6: "SPIRAL", 7: "CROSS", 8: "WAVE"}
+        next_formation_index = ((self.difficulty_level) % 8) + 1
+        next_formation = next_formation_names.get(next_formation_index, "CUSTOM")
         next_level_text, next_level_rect = self.font_manager.render_text(
-            f"Next: Level {self.difficulty_level + 1} ({next_rows}x{next_cols} aliens)", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
+            f"Next: Level {self.difficulty_level + 1} ({next_formation} Formation)", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
         )
         self.screen.blit(next_level_text, next_level_rect)
         
@@ -972,27 +1937,21 @@ class Game:
         self.screen.blit(countdown_text, countdown_rect)
     
     def draw_level_transition(self):
-        """Draw level transition screen"""
-        # Full overlay
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.fill(BLACK)
-        self.screen.blit(overlay, (0, 0))
-        
-        # Level title
-        level_text, level_rect = self.font_manager.render_text(
-            f"LEVEL {self.difficulty_level}", 'title', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 80)
-        )
-        self.screen.blit(level_text, level_rect)
-        
-        # Grid info
+        """Draw enhanced level transition screen"""
+        # Get level configuration
         formation_names = {1: "LINE", 2: "V-SHAPE", 3: "ARC", 4: "TRIANGLE", 5: "DIAMOND", 6: "SPIRAL", 7: "CROSS", 8: "WAVE"}
-        formation_name = formation_names.get(((self.difficulty_level) % 8) + 1, "CUSTOM")
-        grid_text, grid_rect = self.font_manager.render_text(
-            f"{formation_name} Formation", 'large', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 20)
-        )
-        self.screen.blit(grid_text, grid_rect)
+        formation_name = formation_names.get(((self.difficulty_level - 1) % 8) + 1, "CUSTOM")
         
-        # Difficulty info
+        difficulty_summary = self.difficulty_manager.get_level_summary(self.difficulty_level)
+        
+        level_data = {
+            'level': self.difficulty_level,
+            'formation_name': formation_name,
+            'difficulty_summary': difficulty_summary
+        }
+        
+        # Use UI manager for consistent styling
+        self.ui_manager.draw_level_transition(self.screen, level_data)
         difficulty_info = [
             f"Horizontal Speed: {1.0 + (self.difficulty_level - 1) * 0.2:.1f}x",
             f"Vertical Speed: 1.0x (Constant)",
@@ -1012,7 +1971,7 @@ class Game:
         self.screen.blit(ready_text, ready_rect)
         
     def draw_game_over(self):
-        """Draw enhanced game over screen"""
+        """Draw enhanced game over screen with high score system"""
         # Full overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         overlay.set_alpha(200)
@@ -1021,44 +1980,58 @@ class Game:
         
         # Game Over title
         game_over_text, game_over_rect = self.font_manager.render_text(
-            "GAME OVER", 'title', RED, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 120)
+            "GAME OVER", 'title', RED, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 150)
         )
         self.screen.blit(game_over_text, game_over_rect)
         
         # Game over reason
         reason_text, reason_rect = self.font_manager.render_text(
-            self.game_over_reason, 'medium', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 80)
+            self.game_over_reason, 'medium', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 110)
         )
         self.screen.blit(reason_text, reason_rect)
         
+        # Check and update high score
+        is_new_high = self.high_score_manager.update_if_high_score(self.score, self.difficulty_level)
+        
         # Final score
         final_score_text, final_score_rect = self.font_manager.render_text(
-            f"FINAL SCORE: {self.score}", 'large', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40)
+            f"FINAL SCORE: {self.score:,}", 'large', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60)
         )
         self.screen.blit(final_score_text, final_score_rect)
         
-        # High score notification
-        if self.score == self.high_score and self.score > 0:
+        # High score information
+        if is_new_high:
             new_high_text, new_high_rect = self.font_manager.render_text(
-                "🏆 NEW HIGH SCORE! 🏆", 'medium', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+                "🎉 NEW HIGH SCORE! 🎉", 'large', GREEN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 20)
             )
             self.screen.blit(new_high_text, new_high_rect)
+            
+            # Update our local high score for display
+            self.high_score = self.score
         else:
             high_score_text, high_score_rect = self.font_manager.render_text(
-                f"High Score: {self.high_score}", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+                f"HIGH SCORE: {self.high_score:,}", 'large', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 20)
             )
             self.screen.blit(high_score_text, high_score_rect)
         
+        # High score details
+        high_score_date = self.high_score_manager.get_high_score_date()
+        high_score_level = self.high_score_manager.get_high_score_level()
+        details_text, details_rect = self.font_manager.render_text(
+            f"Best: Level {high_score_level} on {high_score_date}", 'medium', GRAY, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20)
+        )
+        self.screen.blit(details_text, details_rect)
+        
         # Level reached
         level_text, level_rect = self.font_manager.render_text(
-            f"Level Reached: {self.difficulty_level}", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
+            f"LEVEL REACHED: {self.difficulty_level}", 'medium', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 50)
         )
         self.screen.blit(level_text, level_rect)
         
         # Controls
         controls = [
             "PRESS R TO RESTART FROM LEVEL 1",
-            "PRESS SPACE TO RETURN TO MENU",
+            "PRESS SPACE TO RETURN TO MENU", 
             "PRESS ESC TO QUIT"
         ]
         
@@ -1079,10 +2052,12 @@ class Game:
         self.game_over_reason = ""
         self.level_complete_timer = 0
         self.transition_timer = 0
-        self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50)
+        self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50, self.visual_assets)
         self.player_bullets = []  # Reset multiple bullets
         self.alien_bullets = []
-        self.cosmic_formation = CosmicFormation(self.difficulty_level)  # Create new cosmic formation with level 1
+        self.cosmic_formation = CosmicFormation(self.difficulty_level, self.visual_assets,
+                                              self.alien_design_manager, self.difficulty_manager,
+                                              self.spaceship_designer, self.progressive_spawner)  # Create new cosmic formation
         self.hit_effects = []  # Clear effects
         self.last_shot_time = 0  # Reset shooting timer
         self.player_hit_timer = 0
@@ -1145,8 +2120,8 @@ class Game:
                 # Still update effects during transitions
                 self.update_effects()
                 
-            # Clear screen
-            self.screen.fill(BLACK)
+            # Draw enhanced background
+            self.draw_background()
             
             # Draw based on game state
             if self.state == GameState.MENU:
