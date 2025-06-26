@@ -70,7 +70,7 @@ An advanced Space Invaders game implemented in Python using Pygame with cutting-
 ## 🚀 Running the Game
 
 ```bash
-python3 space_invaders.py
+python3 cosmic_raiders.py
 ```
 
 ## 🎯 Game Mechanics
@@ -115,7 +115,7 @@ python3 space_invaders.py
 
 ```
 cosmic-raiders/
-├── space_invaders.py           # Main game engine
+├── cosmic_raiders.py           # Main game engine
 ├── spaceship_designer.py       # 20 spaceship designs
 ├── progressive_spawner.py      # Difficulty scaling system
 ├── alien_design_manager.py     # Fallback alien designs

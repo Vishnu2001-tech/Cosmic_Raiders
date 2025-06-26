@@ -11,6 +11,7 @@ from difficulty_manager import DifficultyManager
 from ui_manager import UIManager
 from spaceship_designer import SpaceshipDesigner
 from progressive_spawner import ProgressiveSpawner
+from audio_manager import AudioManager
 
 # Initialize Pygame
 pygame.init()
@@ -28,6 +29,8 @@ RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 CYAN = (0, 255, 255)
+GRAY = (128, 128, 128)
+CYAN = (0, 255, 255)
 MAGENTA = (255, 0, 255)
 GRAY = (128, 128, 128)
 
@@ -37,82 +40,63 @@ class GameState(Enum):
     GAME_OVER = 3
     LEVEL_COMPLETE = 4
     LEVEL_TRANSITION = 5
+    PAUSED = 6
+    VICTORY = 7
+    CREDITS = 8
 
 class FontManager:
     def __init__(self):
         self.fonts = {}
         self.font_path = "fonts/Pixeled.ttf"
-        self.fallback_fonts = [
-            "/usr/share/fonts/truetype/ubuntu/UbuntuMono[wght].ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeMono.ttf"
-        ]
-        self.load_fonts()
-        self.print_font_status()
+        self.font_loaded = False
+        
+        # Try to load custom font
+        if os.path.exists(self.font_path):
+            try:
+                # Test load the font
+                test_font = pygame.font.Font(self.font_path, 16)
+                self.font_loaded = True
+                print("🎮 Font System: Using custom Pixeled.ttf")
+                print("✅ Custom pixel font loaded successfully!")
+                print("🎨 Authentic retro arcade styling enabled!")
+            except pygame.error:
+                print("🎮 Font System: Custom font failed to load, using system fonts")
+                self.font_loaded = False
+        else:
+            print("🎮 Font System: Custom font not found, using system fonts")
+            self.font_loaded = False
     
-    def load_fonts(self):
-        """Load custom pixel font with fallback to better system fonts"""
-        sizes = {
-            'title': 48,
-            'large': 32,
-            'medium': 24,
-            'small': 16
+    def get_font(self, size):
+        """Get font with caching"""
+        if size not in self.fonts:
+            if self.font_loaded:
+                try:
+                    self.fonts[size] = pygame.font.Font(self.font_path, size)
+                except pygame.error:
+                    self.fonts[size] = pygame.font.Font(None, size)
+            else:
+                self.fonts[size] = pygame.font.Font(None, size)
+        return self.fonts[size]
+    
+    def render_text(self, text, size='medium', color=WHITE, center_pos=None):
+        """Render text with different sizes"""
+        size_map = {
+            'small': 14,
+            'medium': 18,
+            'large': 24,
+            'title': 32,
+            'huge': 48
         }
         
-        # Try to load custom font first
-        font_to_use = None
-        font_source = "default"
-        
-        if os.path.exists(self.font_path):
-            font_to_use = self.font_path
-            font_source = "custom Pixeled.ttf"
-        else:
-            # Try fallback fonts for better retro look
-            for fallback_font in self.fallback_fonts:
-                if os.path.exists(fallback_font):
-                    font_to_use = fallback_font
-                    font_source = f"system font ({os.path.basename(fallback_font)})"
-                    break
-        
-        # Load fonts with chosen font file
-        for name, size in sizes.items():
-            try:
-                if font_to_use:
-                    self.fonts[name] = pygame.font.Font(font_to_use, size)
-                else:
-                    # Ultimate fallback to pygame default
-                    self.fonts[name] = pygame.font.Font(None, size)
-                    font_source = "pygame default"
-            except Exception as e:
-                # Ultimate fallback
-                self.fonts[name] = pygame.font.Font(None, size)
-                font_source = "pygame default (fallback)"
-        
-        self.current_font_source = font_source
-    
-    def print_font_status(self):
-        """Print which font is being used"""
-        print(f"🎮 Font System: Using {self.current_font_source}")
-        if os.path.exists(self.font_path):
-            print("✅ Custom pixel font loaded successfully!")
-            print("🎨 Authentic retro arcade styling enabled!")
-        else:
-            print("ℹ️  Note: For authentic retro look, add 'Pixeled.ttf' to fonts/ directory")
-    
-    def get_font(self, size_name):
-        """Get font by size name"""
-        return self.fonts.get(size_name, self.fonts['medium'])
-    
-    def render_text(self, text, size_name, color=WHITE, center_pos=None):
-        """Render text with specified font size"""
-        font = self.get_font(size_name)
-        surface = font.render(text, True, color)
+        font_size = size_map.get(size, 18)
+        font = self.get_font(font_size)
+        text_surface = font.render(str(text), True, color)
         
         if center_pos:
-            rect = surface.get_rect(center=center_pos)
-            return surface, rect
-        
-        return surface, surface.get_rect()
+            text_rect = text_surface.get_rect(center=center_pos)
+            return text_surface, text_rect
+        else:
+            return text_surface, text_surface.get_rect()
 
 class Player:
     def __init__(self, x, y, visual_assets=None):
@@ -1497,20 +1481,51 @@ class CosmicFormation:
 
 class Game:
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Cosmic Raiders")
-        self.clock = pygame.time.Clock()
-        self.font_manager = FontManager()
-        
-        # Enhanced visual and scoring systems
-        print("🎮 Initializing Cosmic Raiders enhanced systems...")
-        self.high_score_manager = HighScoreManager()
-        self.visual_assets = VisualAssets()
-        self.alien_design_manager = AlienDesignManager()
-        self.difficulty_manager = DifficultyManager()
-        self.ui_manager = UIManager(SCREEN_WIDTH, SCREEN_HEIGHT, self.font_manager)
-        self.spaceship_designer = SpaceshipDesigner()
-        self.progressive_spawner = ProgressiveSpawner(self.difficulty_manager)
+        try:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+            pygame.display.set_caption("Cosmic Raiders")
+            self.clock = pygame.time.Clock()
+            self.font_manager = FontManager()
+            
+            # Enhanced visual and scoring systems
+            print("🎮 Initializing Cosmic Raiders enhanced systems...")
+            self.high_score_manager = HighScoreManager()
+            
+            # Initialize visual systems with error handling
+            try:
+                self.visual_assets = VisualAssets()
+                self.alien_design_manager = AlienDesignManager()
+                self.difficulty_manager = DifficultyManager()
+                self.ui_manager = UIManager(SCREEN_WIDTH, SCREEN_HEIGHT, self.font_manager)
+                self.spaceship_designer = SpaceshipDesigner()
+                self.progressive_spawner = ProgressiveSpawner(self.difficulty_manager)
+            except Exception as e:
+                print(f"⚠️ Warning: Some visual systems failed to initialize: {e}")
+                # Create minimal fallback systems
+                self.visual_assets = None
+                self.alien_design_manager = None
+                self.difficulty_manager = DifficultyManager()
+                self.ui_manager = UIManager(SCREEN_WIDTH, SCREEN_HEIGHT, self.font_manager)
+                self.spaceship_designer = None
+                self.progressive_spawner = ProgressiveSpawner(self.difficulty_manager)
+            
+            # Audio and visual feedback systems
+            self.audio_manager = AudioManager()
+            
+        except Exception as e:
+            print(f"❌ Critical error during game initialization: {e}")
+            print("🔄 Attempting minimal initialization...")
+            
+            # Minimal fallback initialization
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+            pygame.display.set_caption("Cosmic Raiders (Safe Mode)")
+            self.clock = pygame.time.Clock()
+            self.font_manager = FontManager()
+            self.high_score_manager = HighScoreManager()
+            self.audio_manager = AudioManager()
+            
+            # Set safe mode flag
+            self.safe_mode = True
         
         # Game state
         self.state = GameState.MENU
@@ -1520,6 +1535,7 @@ class Game:
         self.high_score = self.high_score_manager.get_high_score()
         self.wave = 1
         self.difficulty_level = 1
+        self.safe_mode = False  # Initialize safe mode flag
         
         # Game over and transition states
         self.game_over_reason = ""
@@ -1527,6 +1543,29 @@ class Game:
         self.level_complete_duration = 180  # 3 seconds at 60 FPS
         self.transition_timer = 0
         self.transition_duration = 120  # 2 seconds at 60 FPS
+        
+        # Victory system
+        self.max_levels = 10  # Victory after completing 10 levels
+        self.victory_fade_alpha = 0
+        self.victory_fade_speed = 2
+        self.victory_music_played = False
+        
+        # Credits system
+        self.credits_scroll_y = SCREEN_HEIGHT
+        self.credits_scroll_speed = 1.0
+        self.credits_paused = False
+        self.credits_fade_alpha = 0
+        self.credits_fade_speed = 3
+        self.credits_content = self._create_credits_content()
+        
+        # Performance optimization
+        self.background_cache = None
+        self.menu_cache = None
+        self.last_state = None
+        self.needs_redraw = True
+        
+        # Pause system
+        self.previous_state = None  # Store state before pausing
         
         # Player hit feedback
         self.player_hit_timer = 0
@@ -1549,7 +1588,7 @@ class Game:
         
         # Menu selection
         self.menu_selection = 0
-        self.menu_options = ["START GAME", "QUIT"]
+        self.menu_options = ["START GAME", "CREDITS", "QUIT"]
         
     def handle_input(self):
         """Handle player input based on game state"""
@@ -1576,6 +1615,10 @@ class Game:
         bullet_x = self.player.x + self.player.width // 2 - 2
         bullet_y = self.player.y
         self.player_bullets.append(Bullet(bullet_x, bullet_y, 1, 1.0, self.visual_assets))
+        
+        # Play shoot sound immediately without visual feedback
+        self.audio_manager.play_sound('player_shoot')
+        
         print(f"🔫 Bullet fired! ({len(self.player_bullets)} bullets active)")
         
     def shoot_alien_bullet(self, alien):
@@ -1659,6 +1702,10 @@ class Game:
                 self.cosmic_formation = CosmicFormation(self.difficulty_level, self.visual_assets,
                                                       self.alien_design_manager, self.difficulty_manager,
                                                       self.spaceship_designer, self.progressive_spawner)
+                
+                # Play level advance sound immediately
+                self.audio_manager.play_sound('level_advance')
+                
                 print(f"🌊 Advancing to Level {self.difficulty_level}! Lives reset to {self.lives}")
                 
         elif self.state == GameState.LEVEL_TRANSITION:
@@ -1688,11 +1735,17 @@ class Game:
                         effect_y = alien.y + alien.height // 2
                         self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion", self.visual_assets))
                         
+                        # Play destruction sound immediately
+                        self.audio_manager.play_sound('alien_destroy')
+                        
                         # Remove alien
                         self.cosmic_formation.active_aliens.remove(alien)
                     else:
                         # Alien damaged but not destroyed
                         print(f"🎯 {alien.alien_type.capitalize()} hit! Health: {alien.health}/{alien.max_health}")
+                        
+                        # Play hit sound immediately
+                        self.audio_manager.play_sound('alien_hit')
                     
                     break
                     
@@ -1712,6 +1765,9 @@ class Game:
                     effect_y = self.player.y + self.player.height // 2
                     self.hit_effects.append(HitEffect(effect_x, effect_y, "explosion", self.visual_assets))
                     
+                    # Play player hit sound immediately
+                    self.audio_manager.play_sound('player_hit')
+                    
                     print(f"⚠️ PLAYER HIT! Lives remaining: {self.lives}")
                     break
                 
@@ -1721,8 +1777,27 @@ class Game:
         
         # Check if formation is complete (level complete)
         if self.cosmic_formation.is_formation_complete():
+            # Check for victory condition (completed max levels)
+            if self.difficulty_level >= self.max_levels:
+                self.state = GameState.VICTORY
+                self.victory_fade_alpha = 0
+                self.victory_music_played = False
+                
+                # Update high score if needed
+                if self.score > self.high_score:
+                    self.high_score = self.score
+                    self.high_score_manager.save_high_score(self.score, self.difficulty_level)
+                
+                print(f"🏆 VICTORY! Completed all {self.max_levels} levels! Final Score: {self.score}")
+                return
+            
+            # Regular level completion
             self.state = GameState.LEVEL_COMPLETE
             self.level_complete_timer = self.level_complete_duration
+            
+            # Play level complete sound immediately
+            self.audio_manager.play_sound('level_complete')
+            
             print(f"🎉 Level {self.difficulty_level} completed! Score: {self.score}")
             return
             
@@ -1732,6 +1807,11 @@ class Game:
             self.game_over_reason = "No lives remaining!"
             if self.score > self.high_score:
                 self.high_score = self.score
+            
+            # Play game over sound and stop music immediately
+            self.audio_manager.stop_music()
+            self.audio_manager.play_sound('game_over')
+            
             print("💀 Game Over: No lives remaining!")
             
     def draw_background(self):
@@ -1743,67 +1823,153 @@ class Game:
             # Fallback to gradient
             self.screen.fill(BLACK)
     
-    def draw_menu(self):
-        """Draw the main menu"""
-        # Enhanced background
+    def draw_menu_background(self):
+        """Draw enhanced background specifically for menu with animated elements"""
+        # Base background
         self.draw_background()
         
-        # Title
-        title_text, title_rect = self.font_manager.render_text(
-            "COSMIC RAIDERS", 'title', WHITE, (SCREEN_WIDTH//2, 150)
-        )
-        self.screen.blit(title_text, title_rect)
+        # Add animated twinkling stars for menu
+        import math, random
+        time_offset = pygame.time.get_ticks() * 0.001
         
-        # Subtitle
-        subtitle_text, subtitle_rect = self.font_manager.render_text(
-            "DYNAMIC FORMATION EDITION", 'medium', CYAN, (SCREEN_WIDTH//2, 200)
-        )
-        self.screen.blit(subtitle_text, subtitle_rect)
-        
-        # Menu options
-        for i, option in enumerate(self.menu_options):
-            color = YELLOW if i == self.menu_selection else WHITE
-            option_text, option_rect = self.font_manager.render_text(
-                option, 'large', color, (SCREEN_WIDTH//2, 300 + i * 60)
-            )
-            self.screen.blit(option_text, option_rect)
+        # Create some animated stars
+        random.seed(42)  # Fixed seed for consistent star positions
+        for i in range(50):
+            x = random.randint(0, SCREEN_WIDTH)
+            y = random.randint(0, SCREEN_HEIGHT)
             
-            # Selection indicator
-            if i == self.menu_selection:
-                indicator_text, indicator_rect = self.font_manager.render_text(
-                    ">", 'large', YELLOW, (option_rect.left - 40, option_rect.centery)
-                )
-                self.screen.blit(indicator_text, indicator_rect)
+            # Twinkling effect
+            alpha = int(100 + 155 * abs(math.sin(time_offset * 2 + i * 0.5)))
+            star_color = (255, 255, 255, alpha)
+            
+            # Different star sizes
+            if i % 3 == 0:
+                pygame.draw.circle(self.screen, (255, 255, 255), (x, y), 2)
+            elif i % 3 == 1:
+                pygame.draw.circle(self.screen, (200, 200, 255), (x, y), 1)
+            else:
+                self.screen.set_at((x, y), (255, 255, 200))
+    
+    def draw_menu(self):
+        """Draw the enhanced main menu with retro effects"""
+        # Enhanced background with animated stars
+        self.draw_menu_background()
         
-        # Instructions
-        instructions = [
-            "USE ARROW KEYS TO NAVIGATE",
-            "PRESS ENTER TO SELECT",
-            "WASD OR ARROWS TO MOVE",
-            "SPACEBAR FOR RAPID FIRE"
-        ]
+        # Add some visual flair with animated elements
+        import math
+        time_offset = pygame.time.get_ticks() * 0.003  # Slow animation
         
-        for i, instruction in enumerate(instructions):
-            inst_text, inst_rect = self.font_manager.render_text(
-                instruction, 'small', GRAY, (SCREEN_WIDTH//2, 450 + i * 25)
-            )
-            self.screen.blit(inst_text, inst_rect)
-        
-        # High score display (enhanced)
+        # High score display (moved to top to avoid overlap)
         current_high_score = self.high_score_manager.get_high_score()
         if current_high_score > 0:
+            # High score with glow effect
             high_score_text, high_score_rect = self.font_manager.render_text(
-                f"HIGH SCORE: {current_high_score:,}", 'large', GREEN, (SCREEN_WIDTH//2, 100)
+                f"HIGH SCORE: {current_high_score:,}", 'medium', GREEN, (SCREEN_WIDTH//2, 40)
             )
+            # Create glow effect
+            glow_surface = pygame.Surface((high_score_rect.width + 10, high_score_rect.height + 10), pygame.SRCALPHA)
+            glow_text, _ = self.font_manager.render_text(f"HIGH SCORE: {current_high_score:,}", 'medium', (0, 255, 0, 100))
+            glow_surface.blit(glow_text, (5, 5))
+            self.screen.blit(glow_surface, (high_score_rect.x - 5, high_score_rect.y - 5))
             self.screen.blit(high_score_text, high_score_rect)
             
             # High score details
             high_score_date = self.high_score_manager.get_high_score_date()
             high_score_level = self.high_score_manager.get_high_score_level()
             details_text, details_rect = self.font_manager.render_text(
-                f"Level {high_score_level} • {high_score_date}", 'small', GRAY, (SCREEN_WIDTH//2, 130)
+                f"Level {high_score_level} • {high_score_date}", 'small', GRAY, (SCREEN_WIDTH//2, 65)
             )
             self.screen.blit(details_text, details_rect)
+        
+        # Main title with enhanced effects
+        title_y = 140
+        
+        # Title shadow/outline effect
+        for offset_x, offset_y in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
+            shadow_text, shadow_rect = self.font_manager.render_text(
+                "COSMIC RAIDERS", 'title', (50, 50, 50), (SCREEN_WIDTH//2 + offset_x, title_y + offset_y)
+            )
+            self.screen.blit(shadow_text, shadow_rect)
+        
+        # Main title with color cycling
+        title_color_r = int(255 * (0.8 + 0.2 * math.sin(time_offset)))
+        title_color_g = int(255 * (0.8 + 0.2 * math.sin(time_offset + 2)))
+        title_color_b = int(255 * (0.9 + 0.1 * math.sin(time_offset + 4)))
+        title_color = (title_color_r, title_color_g, title_color_b)
+        
+        title_text, title_rect = self.font_manager.render_text(
+            "COSMIC RAIDERS", 'title', title_color, (SCREEN_WIDTH//2, title_y)
+        )
+        self.screen.blit(title_text, title_rect)
+        
+        # Subtitle with pulsing effect
+        subtitle_alpha = int(200 + 55 * math.sin(time_offset * 2))
+        subtitle_color = (*CYAN[:3], subtitle_alpha) if len(CYAN) == 4 else CYAN
+        subtitle_text, subtitle_rect = self.font_manager.render_text(
+            "DYNAMIC FORMATION EDITION", 'medium', CYAN, (SCREEN_WIDTH//2, 190)
+        )
+        self.screen.blit(subtitle_text, subtitle_rect)
+        
+        # Enhanced developer branding with better visibility
+        branding_y = 220
+        
+        # Branding background for better readability
+        branding_bg = pygame.Surface((400, 35), pygame.SRCALPHA)
+        branding_bg.fill((0, 0, 0, 120))  # Semi-transparent black background
+        branding_bg_rect = branding_bg.get_rect(center=(SCREEN_WIDTH//2, branding_y))
+        self.screen.blit(branding_bg, branding_bg_rect)
+        
+        # Branding text with enhanced styling
+        branding_text, branding_rect = self.font_manager.render_text(
+            "By: Vishnu Anurag Thonukunoori", 'medium', WHITE, (SCREEN_WIDTH//2, branding_y)  # Changed to medium size and white
+        )
+        self.screen.blit(branding_text, branding_rect)
+        
+        # Menu options with enhanced spacing
+        menu_start_y = 280  # Moved further down to accommodate branding
+        for i, option in enumerate(self.menu_options):
+            # Menu option background for selected item
+            if i == self.menu_selection:
+                option_bg = pygame.Surface((200, 40), pygame.SRCALPHA)
+                option_bg.fill((255, 255, 0, 30))  # Yellow highlight
+                option_bg_rect = option_bg.get_rect(center=(SCREEN_WIDTH//2, menu_start_y + i * 60))
+                self.screen.blit(option_bg, option_bg_rect)
+            
+            color = YELLOW if i == self.menu_selection else WHITE
+            option_text, option_rect = self.font_manager.render_text(
+                option, 'large', color, (SCREEN_WIDTH//2, menu_start_y + i * 60)
+            )
+            self.screen.blit(option_text, option_rect)
+            
+            # Enhanced selection indicator with animation using ASCII characters
+            if i == self.menu_selection:
+                indicator_offset = int(3 * math.sin(time_offset * 8))  # Animated indicator
+                indicator_text, indicator_rect = self.font_manager.render_text(
+                    ">>", 'large', YELLOW, (option_rect.left - 60 + indicator_offset, option_rect.centery)
+                )
+                self.screen.blit(indicator_text, indicator_rect)
+        
+        # Instructions with better positioning
+        instructions_start_y = 450  # Moved down to accommodate menu changes
+        instructions = [
+            "USE ARROW KEYS TO NAVIGATE",
+            "PRESS ENTER TO SELECT",
+            "PRESS C FOR CREDITS",
+            "WASD OR ARROWS TO MOVE",
+            "SPACEBAR FOR RAPID FIRE"
+        ]
+        
+        # Instructions background
+        instructions_bg = pygame.Surface((500, 140), pygame.SRCALPHA)
+        instructions_bg.fill((0, 0, 0, 80))
+        instructions_bg_rect = instructions_bg.get_rect(center=(SCREEN_WIDTH//2, instructions_start_y + 60))
+        self.screen.blit(instructions_bg, instructions_bg_rect)
+        
+        for i, instruction in enumerate(instructions):
+            inst_text, inst_rect = self.font_manager.render_text(
+                instruction, 'small', GRAY, (SCREEN_WIDTH//2, instructions_start_y + i * 25)
+            )
+            self.screen.blit(inst_text, inst_rect)
     
     def draw_game_ui(self):
         """Draw compact, non-intrusive game UI with progressive info"""
@@ -1831,24 +1997,17 @@ class Game:
             'show_stats': len(self.player_bullets) > 3  # Only show bullet count when many active
         }
         
-        # Use compact UI manager
+        # Use compact UI manager - it handles all UI elements including high score
         self.ui_manager.draw_compact_hud(self.screen, game_data)
         
-        # Player status
+        # Player status (only additional UI element not handled by UI manager)
         if self.player_invulnerable_timer > 0:
             status_text, _ = self.font_manager.render_text("INVULNERABLE", 'small', YELLOW)
             self.screen.blit(status_text, (10, 265))
         
-        # High score (top right)
-        high_score_text, high_score_rect = self.font_manager.render_text(
-            f"HIGH: {self.high_score}", 'medium', CYAN
-        )
-        high_score_rect.topright = (SCREEN_WIDTH - 10, 10)
-        self.screen.blit(high_score_text, high_score_rect)
-        
-        # Instructions at bottom
+        # Instructions at bottom (updated to include mute key)
         instruction_text, instruction_rect = self.font_manager.render_text(
-            "SPACE: RAPID FIRE  |  ESC: MENU", 'small', GRAY, (SCREEN_WIDTH//2, SCREEN_HEIGHT - 20)
+            "SPACE: RAPID FIRE  |  ESC: PAUSE  |  M: MUTE", 'small', GRAY, (SCREEN_WIDTH//2, SCREEN_HEIGHT - 20)
         )
         self.screen.blit(instruction_text, instruction_rect)
     
@@ -1944,31 +2103,19 @@ class Game:
         
         difficulty_summary = self.difficulty_manager.get_level_summary(self.difficulty_level)
         
+        # Add additional info to difficulty summary
+        difficulty_summary['lives'] = self.lives
+        difficulty_summary['horizontal_speed'] = f"{1.0 + (self.difficulty_level - 1) * 0.2:.1f}x"
+        difficulty_summary['vertical_speed'] = "1.0x (Constant)"
+        
         level_data = {
             'level': self.difficulty_level,
             'formation_name': formation_name,
             'difficulty_summary': difficulty_summary
         }
         
-        # Use UI manager for consistent styling
+        # Use UI manager for consistent styling - it handles all the text rendering
         self.ui_manager.draw_level_transition(self.screen, level_data)
-        difficulty_info = [
-            f"Horizontal Speed: {1.0 + (self.difficulty_level - 1) * 0.2:.1f}x",
-            f"Vertical Speed: 1.0x (Constant)",
-            f"Lives: {self.lives}"
-        ]
-        
-        for i, info in enumerate(difficulty_info):
-            info_text, info_rect = self.font_manager.render_text(
-                info, 'medium', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20 + i * 30)
-            )
-            self.screen.blit(info_text, info_rect)
-        
-        # Ready message
-        ready_text, ready_rect = self.font_manager.render_text(
-            "GET READY!", 'large', RED, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 120)
-        )
-        self.screen.blit(ready_text, ready_rect)
         
     def draw_game_over(self):
         """Draw enhanced game over screen with high score system"""
@@ -2041,6 +2188,150 @@ class Game:
                 control, 'small', color, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 100 + i * 25)
             )
             self.screen.blit(control_text, control_rect)
+    
+    def draw_victory_screen(self):
+        """Draw victory screen for completing all levels"""
+        # Gradually fade background to black
+        if self.victory_fade_alpha < 220:
+            self.victory_fade_alpha += self.victory_fade_speed
+        
+        # Play victory music once
+        if not self.victory_music_played:
+            self.audio_manager.stop_music()
+            # Play victory sound effect
+            self.audio_manager.play_sound('victory_sound')
+            self.victory_music_played = True
+        
+        # Faded background overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(self.victory_fade_alpha)
+        overlay.fill(BLACK)
+        self.screen.blit(overlay, (0, 0))
+        
+        # Victory title with cosmic theme
+        victory_text, victory_rect = self.font_manager.render_text(
+            "YOU DEFEATED THE", 'title', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 180)
+        )
+        self.screen.blit(victory_text, victory_rect)
+        
+        cosmic_text, cosmic_rect = self.font_manager.render_text(
+            "COSMIC RAIDERS!", 'title', GREEN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 140)
+        )
+        self.screen.blit(cosmic_text, cosmic_rect)
+        
+        # Victory subtitle
+        subtitle_text, subtitle_rect = self.font_manager.render_text(
+            f"All {self.max_levels} Levels Conquered!", 'large', CYAN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 90)
+        )
+        self.screen.blit(subtitle_text, subtitle_rect)
+        
+        # Final score
+        final_score_text, final_score_rect = self.font_manager.render_text(
+            f"FINAL SCORE: {self.score:,}", 'large', WHITE, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40)
+        )
+        self.screen.blit(final_score_text, final_score_rect)
+        
+        # High score information
+        if self.score >= self.high_score:
+            new_high_text, new_high_rect = self.font_manager.render_text(
+                "🏆 ULTIMATE HIGH SCORE! 🏆", 'large', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+            )
+            self.screen.blit(new_high_text, new_high_rect)
+        else:
+            high_score_text, high_score_rect = self.font_manager.render_text(
+                f"HIGH SCORE: {self.high_score:,}", 'large', YELLOW, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+            )
+            self.screen.blit(high_score_text, high_score_rect)
+        
+        # Victory achievement
+        achievement_text, achievement_rect = self.font_manager.render_text(
+            "GALACTIC DEFENDER ACHIEVEMENT UNLOCKED", 'medium', GREEN, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)
+        )
+        self.screen.blit(achievement_text, achievement_rect)
+        
+        # Controls
+        controls = [
+            "PRESS R TO PLAY AGAIN",
+            "PRESS SPACE TO RETURN TO MENU"
+        ]
+        
+        for i, control in enumerate(controls):
+            color = GREEN if i == 0 else YELLOW
+            control_text, control_rect = self.font_manager.render_text(
+                control, 'medium', color, (SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 90 + i * 30)
+            )
+            self.screen.blit(control_text, control_rect)
+    
+    def draw_credits_screen(self):
+        """Draw scrolling credits screen with fade effects"""
+        # Fade in effect
+        if self.credits_fade_alpha < 255:
+            self.credits_fade_alpha += self.credits_fade_speed
+            self.credits_fade_alpha = min(255, self.credits_fade_alpha)
+        
+        # Dark space background with fade
+        background_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        background_surface.fill((5, 5, 15))  # Very dark blue
+        background_surface.set_alpha(self.credits_fade_alpha)
+        self.screen.blit(background_surface, (0, 0))
+        
+        # Add some stars to the background
+        if self.credits_fade_alpha > 100:
+            for i in range(50):
+                star_x = (i * 137) % SCREEN_WIDTH
+                star_y = (i * 211 + int(self.credits_scroll_y * 0.1)) % SCREEN_HEIGHT
+                star_brightness = min(255, self.credits_fade_alpha - 50)
+                star_color = (star_brightness, star_brightness, star_brightness)
+                pygame.draw.circle(self.screen, star_color, (star_x, star_y), 1)
+        
+        # Draw credits text
+        current_y = self.credits_scroll_y
+        
+        for text, size, spacing in self.credits_content:
+            if text:  # Only draw non-empty text
+                # Choose color based on content
+                if size == "huge":
+                    color = YELLOW
+                elif size == "large":
+                    color = GREEN
+                elif "🚀" in text or "👾" in text or "🏆" in text or "⭐" in text:
+                    color = CYAN
+                elif text.startswith("Press"):
+                    color = WHITE if (pygame.time.get_ticks() // 500) % 2 else GRAY
+                else:
+                    color = WHITE
+                
+                # Render text with fade
+                text_surface, text_rect = self.font_manager.render_text(
+                    text, size, color, (SCREEN_WIDTH // 2, current_y)
+                )
+                
+                # Apply fade alpha
+                if self.credits_fade_alpha < 255:
+                    text_surface.set_alpha(self.credits_fade_alpha)
+                
+                # Only draw if visible on screen
+                if -50 < current_y < SCREEN_HEIGHT + 50:
+                    self.screen.blit(text_surface, text_rect)
+            
+            current_y += spacing
+        
+        # Update scroll position if not paused
+        if not self.credits_paused:
+            self.credits_scroll_y -= self.credits_scroll_speed
+            
+            # Reset scroll when credits finish
+            total_height = sum(spacing for _, _, spacing in self.credits_content)
+            if self.credits_scroll_y < -total_height:
+                self.credits_scroll_y = SCREEN_HEIGHT
+        
+        # Draw pause indicator if paused
+        if self.credits_paused:
+            pause_text, pause_rect = self.font_manager.render_text(
+                "PAUSED - Press P to continue", 'small', YELLOW, 
+                (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30)
+            )
+            self.screen.blit(pause_text, pause_rect)
         
     def restart_game(self):
         """Reset game to initial state (Level 1)"""
@@ -2052,6 +2343,11 @@ class Game:
         self.game_over_reason = ""
         self.level_complete_timer = 0
         self.transition_timer = 0
+        
+        # Reset victory state
+        self.victory_fade_alpha = 0
+        self.victory_music_played = False
+        
         self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50, self.visual_assets)
         self.player_bullets = []  # Reset multiple bullets
         self.alien_bullets = []
@@ -2062,16 +2358,122 @@ class Game:
         self.last_shot_time = 0  # Reset shooting timer
         self.player_hit_timer = 0
         self.player_invulnerable_timer = 0
+        
+        # Start game music
+        self.audio_manager.play_music('game_music')
         print(f"🔄 Game restarted! Starting Level 1 with {self.lives} lives")
+    
+    def start_credits(self):
+        """Start the credits screen"""
+        self.state = GameState.CREDITS
+        self.credits_scroll_y = SCREEN_HEIGHT
+        self.credits_fade_alpha = 0
+        self.credits_paused = False
+        
+        # Play ambient menu music for credits
+        self.audio_manager.play_music('menu')
+        print("🎬 Starting credits screen")
+    
+    def exit_credits(self):
+        """Exit credits and return to menu"""
+        self.state = GameState.MENU
+        self.credits_fade_alpha = 0
+        print("🔙 Returning to main menu")
+        
+    def _create_credits_content(self):
+        """Create the credits content with proper formatting"""
+        credits = [
+            ("", "huge", 60),  # Spacer
+            ("COSMIC RAIDERS", "huge", 80),
+            ("", "medium", 80),
+            
+            ("CREATED BY", "large", 60),
+            ("Vishnu Anurag Thonukunoori", "medium", 80),
+            ("", "medium", 60),
+            
+            ("POWERED BY", "large", 60),
+            ("Python 3.12", "medium", 40),
+            ("Pygame 2.5.2", "medium", 80),
+            ("", "medium", 60),
+            
+            ("TYPOGRAPHY", "large", 60),
+            ("Pixeled.ttf", "medium", 40),
+            ("Retro Pixel Font", "small", 80),
+            ("", "medium", 60),
+            
+            ("AUDIO & MUSIC", "large", 60),
+            ("Procedurally Generated", "medium", 40),
+            ("Dynamic Sound Effects", "small", 40),
+            ("Ambient Space Music", "small", 80),
+            ("", "medium", 60),
+            
+            ("VISUAL ASSETS", "large", 60),
+            ("Custom Pixel Art", "medium", 40),
+            ("Procedural Spaceships", "small", 40),
+            ("Dynamic Backgrounds", "small", 80),
+            ("", "medium", 60),
+            
+            ("GAME FEATURES", "large", 60),
+            ("20 Unique Spaceship Designs", "small", 30),
+            ("Progressive Difficulty System", "small", 30),
+            ("8 Formation Patterns", "small", 30),
+            ("10 Challenging Levels", "small", 30),
+            ("High Score Persistence", "small", 80),
+            ("", "medium", 60),
+            
+            ("SPECIAL THANKS", "large", 60),
+            ("Amazon Web Services", "medium", 40),
+            ("Python Community", "medium", 40),
+            ("Pygame Developers", "medium", 40),
+            ("Retro Gaming Enthusiasts", "medium", 40),
+            ("Space Invaders Legacy", "medium", 80),
+            ("", "medium", 100),
+            
+            ("ACHIEVEMENTS UNLOCKED", "large", 60),
+            ("🚀 Galactic Defender", "medium", 40),
+            ("👾 Alien Hunter", "medium", 40),
+            ("🏆 High Score Master", "medium", 40),
+            ("⭐ Cosmic Champion", "medium", 80),
+            ("", "medium", 100),
+            
+            ("Thank you for playing!", "large", 80),
+            ("", "medium", 60),
+            ("Press SPACE to return to menu", "medium", 100),
+            ("", "huge", 200),  # Final spacer
+        ]
+        
+        return credits
+    
+    def restart_level(self):
+        """Restart current level while keeping score and progress"""
+        self.state = GameState.PLAYING
+        self.previous_state = None
+        self.lives = self.max_lives  # Reset lives for the level
+        self.player = Player(SCREEN_WIDTH // 2 - 25, SCREEN_HEIGHT - 50, self.visual_assets)
+        self.player_bullets = []  # Clear bullets
+        self.alien_bullets = []
+        self.cosmic_formation = CosmicFormation(self.difficulty_level, self.visual_assets,
+                                              self.alien_design_manager, self.difficulty_manager,
+                                              self.spaceship_designer, self.progressive_spawner)  # Recreate formation for current level
+        self.hit_effects = []  # Clear effects
+        self.last_shot_time = 0  # Reset shooting timer
+        self.player_hit_timer = 0
+        self.player_invulnerable_timer = 0
+        print(f"🔄 Level {self.difficulty_level} restarted! Lives reset to {self.lives}")
     
     def start_game(self):
         """Start a new game from menu"""
         self.restart_game()
         self.state = GameState.PLAYING
+        # Start game music
+        self.audio_manager.play_music('game')
         
     def run(self):
         """Main game loop"""
         running = True
+        
+        # Start menu music
+        self.audio_manager.play_music('menu')
         
         while running:
             # Handle events
@@ -2079,13 +2481,43 @@ class Game:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+                    # Global mute key (works in any state)
+                    if event.key == pygame.K_m:
+                        self.audio_manager.toggle_mute()
+                    
+                    elif event.key == pygame.K_ESCAPE:
                         if self.state == GameState.PLAYING:
-                            self.state = GameState.MENU
+                            # Pause the game and music
+                            self.previous_state = GameState.PLAYING
+                            self.state = GameState.PAUSED
+                            self.audio_manager.pause_music()
+                        elif self.state == GameState.PAUSED:
+                            # Resume the game and music
+                            self.state = self.previous_state
+                            self.previous_state = None
+                            self.audio_manager.resume_music()
                         elif self.state == GameState.GAME_OVER:
                             running = False  # Quit from game over
+                        elif self.state == GameState.VICTORY:
+                            running = False  # Quit from victory screen
                         elif self.state == GameState.MENU:
                             running = False
+                    
+                    # Pause screen controls
+                    elif self.state == GameState.PAUSED:
+                        if event.key == pygame.K_p:
+                            # Resume with P key
+                            self.state = self.previous_state
+                            self.previous_state = None
+                            self.audio_manager.resume_music()
+                        elif event.key == pygame.K_r:
+                            # Restart level
+                            self.restart_level()
+                        elif event.key == pygame.K_SPACE:
+                            # Quit to menu
+                            self.state = GameState.MENU
+                            self.previous_state = None
+                            self.audio_manager.play_music('menu')
                     
                     # Menu navigation
                     elif self.state == GameState.MENU:
@@ -2096,8 +2528,19 @@ class Game:
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             if self.menu_selection == 0:  # START GAME
                                 self.start_game()
-                            elif self.menu_selection == 1:  # QUIT
+                            elif self.menu_selection == 1:  # CREDITS
+                                self.start_credits()
+                            elif self.menu_selection == 2:  # QUIT
                                 running = False
+                        elif event.key == pygame.K_c:  # Direct credits shortcut
+                            self.start_credits()
+                    
+                    # Credits screen controls
+                    elif self.state == GameState.CREDITS:
+                        if event.key == pygame.K_SPACE:
+                            self.exit_credits()
+                        elif event.key == pygame.K_ESCAPE or event.key == pygame.K_p:
+                            self.credits_paused = not self.credits_paused
                     
                     # Game over screen controls
                     elif self.state == GameState.GAME_OVER:
@@ -2105,6 +2548,14 @@ class Game:
                             self.restart_game()
                         elif event.key == pygame.K_SPACE:
                             self.state = GameState.MENU
+                    
+                    # Victory screen controls
+                    elif self.state == GameState.VICTORY:
+                        if event.key == pygame.K_r:
+                            self.restart_game()
+                        elif event.key == pygame.K_SPACE:
+                            self.state = GameState.MENU
+                            self.audio_manager.play_music('menu_music')
                         
             # Update game logic
             if self.state == GameState.PLAYING:
@@ -2119,6 +2570,9 @@ class Game:
                 self.update_level_transitions()
                 # Still update effects during transitions
                 self.update_effects()
+            elif self.state == GameState.PAUSED:
+                # Only update effects when paused, not game logic
+                pass
                 
             # Draw enhanced background
             self.draw_background()
@@ -2200,10 +2654,81 @@ class Game:
                 # Draw game over overlay
                 self.draw_game_over()
             
+            elif self.state == GameState.VICTORY:
+                # Draw the current game state in background (faded)
+                if self.player_hit_timer > 0 and self.player_hit_timer % 6 < 3:
+                    # Flash red when hit
+                    player_surface = pygame.Surface((self.player.width, self.player.height))
+                    player_surface.fill(RED)
+                    player_surface.set_alpha(128)
+                    self.screen.blit(player_surface, (self.player.x, self.player.y))
+                else:
+                    self.player.draw(self.screen)
+                
+                # Draw cosmic formation
+                self.cosmic_formation.draw(self.screen)
+                
+                # Draw bullets
+                for bullet in self.player_bullets:
+                    bullet.draw(self.screen)
+                for bullet in self.alien_bullets:
+                    bullet.draw(self.screen)
+                
+                # Draw effects
+                for effect in self.hit_effects:
+                    effect.draw(self.screen, self.font_manager)
+                self.draw_game_ui()
+                
+                # Draw victory overlay
+                self.draw_victory_screen()
+            
+            elif self.state == GameState.CREDITS:
+                # Draw credits screen
+                self.draw_credits_screen()
+            
+            elif self.state == GameState.PAUSED:
+                # Draw frozen game state (same as playing but without updates)
+                if self.player_hit_timer > 0 and self.player_hit_timer % 6 < 3:
+                    # Flash red when hit
+                    player_surface = pygame.Surface((self.player.width, self.player.height))
+                    player_surface.fill(RED)
+                    player_surface.set_alpha(128)
+                    self.screen.blit(player_surface, (self.player.x, self.player.y))
+                else:
+                    self.player.draw(self.screen)
+                
+                # Draw cosmic formation
+                self.cosmic_formation.draw(self.screen)
+                
+                # Draw bullets
+                for bullet in self.player_bullets:
+                    bullet.draw(self.screen)
+                for bullet in self.alien_bullets:
+                    bullet.draw(self.screen)
+                
+                # Draw hit effects
+                for effect in self.hit_effects:
+                    effect.draw(self.screen, self.font_manager)
+                
+                # Draw warning if player is low on lives
+                if self.lives == 1:
+                    warning_text, warning_rect = self.font_manager.render_text(
+                        "⚠️ LAST LIFE! ⚠️", 'medium', RED, (SCREEN_WIDTH//2, 50)
+                    )
+                    self.screen.blit(warning_text, warning_rect)
+                
+                # Draw UI
+                self.draw_game_ui()
+                
+                # Draw pause overlay
+                self.ui_manager.draw_pause_screen(self.screen)
+            
             # Update display
             pygame.display.flip()
             self.clock.tick(FPS)
             
+        # Cleanup audio system
+        self.audio_manager.cleanup()
         pygame.quit()
         sys.exit()
 

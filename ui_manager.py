@@ -102,16 +102,16 @@ class UIManager:
         score_rect.topright = (zone.right - 5, zone.y + 5)
         screen.blit(score_text, score_rect)
         
-        # High score (smaller, less prominent)
+        # High score (smaller, less prominent) - Fixed positioning
         if high_score > 0:
             high_text, high_rect = self.font_manager.render_text(f"HI:{high_score:,}", 'small', self.colors['text_secondary'])
-            high_rect.topright = (zone.right - 5, zone.y + 35)
+            high_rect.topright = (zone.right - 5, zone.y + 30)  # Reduced gap from 35 to 30
             screen.blit(high_text, high_rect)
         
-        # New high score indicator
+        # New high score indicator - Fixed positioning
         if score > high_score and score > 0:
             new_text, new_rect = self.font_manager.render_text("NEW!", 'small', self.colors['score_new'])
-            new_rect.topright = (zone.right - 5, zone.y + 55)
+            new_rect.topright = (zone.right - 5, zone.y + 50)  # Reduced gap from 55 to 50
             screen.blit(new_text, new_rect)
     
     def draw_level_progress(self, screen, game_data):
@@ -176,7 +176,7 @@ class UIManager:
             screen.blit(bullet_text, bullet_rect)
     
     def draw_level_transition(self, screen, level_data):
-        """Draw level transition screen"""
+        """Draw level transition screen with proper spacing"""
         # Full screen overlay
         overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
@@ -185,47 +185,101 @@ class UIManager:
         center_x = self.screen_width // 2
         center_y = self.screen_height // 2
         
-        # Level number
+        # Level number - positioned higher
         level = level_data.get('level', 1)
         level_text, level_rect = self.font_manager.render_text(
-            f"LEVEL {level}", 'title', self.colors['text_accent'], (center_x, center_y - 80)
+            f"LEVEL {level}", 'title', self.colors['text_accent'], (center_x, center_y - 120)
         )
         screen.blit(level_text, level_rect)
         
-        # Formation name
+        # Formation name - better spacing
         formation = level_data.get('formation_name', 'UNKNOWN')
         form_text, form_rect = self.font_manager.render_text(
-            f"{formation} FORMATION", 'large', self.colors['text_primary'], (center_x, center_y - 30)
+            f"{formation} FORMATION", 'large', self.colors['text_primary'], (center_x, center_y - 70)
         )
         screen.blit(form_text, form_rect)
         
-        # Difficulty info
+        # Difficulty info - better spacing
         difficulty = level_data.get('difficulty_summary', {})
         if difficulty:
             tier = difficulty.get('tier', 'ROOKIE')
             tier_text, tier_rect = self.font_manager.render_text(
-                f"DIFFICULTY: {tier}", 'medium', self.colors['text_secondary'], (center_x, center_y + 20)
+                f"DIFFICULTY: {tier}", 'medium', self.colors['text_secondary'], (center_x, center_y - 20)
             )
             screen.blit(tier_text, tier_rect)
             
-            # Quick stats
-            stats = [
-                f"Speed: {difficulty.get('speed_increase', '+0%')}",
-                f"Max Aliens: {difficulty.get('max_aliens', 3)}",
-                f"Abilities: {difficulty.get('special_count', 0)}"
-            ]
+            # Game stats - improved spacing and positioning
+            stats = []
+            if 'horizontal_speed' in difficulty:
+                stats.append(f"Horizontal Speed: {difficulty['horizontal_speed']}")
+            if 'vertical_speed' in difficulty:
+                stats.append(f"Vertical Speed: {difficulty['vertical_speed']}")
+            if 'lives' in difficulty:
+                stats.append(f"Lives: {difficulty['lives']}")
+            if 'max_aliens' in difficulty:
+                stats.append(f"Max Aliens: {difficulty['max_aliens']}")
+            if 'special_count' in difficulty:
+                stats.append(f"Abilities: {difficulty['special_count']}")
             
             for i, stat in enumerate(stats):
                 stat_text, stat_rect = self.font_manager.render_text(
-                    stat, 'small', self.colors['text_secondary'], (center_x, center_y + 50 + i * 20)
+                    stat, 'small', self.colors['text_secondary'], (center_x, center_y + 20 + i * 25)
                 )
                 screen.blit(stat_text, stat_rect)
         
-        # Ready message
+        # Ready message - positioned lower to avoid overlap
         ready_text, ready_rect = self.font_manager.render_text(
-            "GET READY!", 'large', self.colors['health_low'], (center_x, center_y + 120)
+            "GET READY!", 'large', self.colors['health_low'], (center_x, center_y + 160)
         )
         screen.blit(ready_text, ready_rect)
+    
+    def draw_pause_screen(self, screen):
+        """Draw pause screen with control hints"""
+        # Full screen semi-transparent overlay
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))  # Semi-transparent black
+        screen.blit(overlay, (0, 0))
+        
+        center_x = self.screen_width // 2
+        center_y = self.screen_height // 2
+        
+        # PAUSED title
+        paused_text, paused_rect = self.font_manager.render_text(
+            "PAUSED", 'title', self.colors['text_accent'], (center_x, center_y - 100)
+        )
+        screen.blit(paused_text, paused_rect)
+        
+        # Control hints
+        controls = [
+            "CONTROLS:",
+            "",
+            "Move: Arrow Keys",
+            "Shoot: Spacebar",
+            "",
+            "PAUSE MENU:",
+            "",
+            "Resume: ESC or P",
+            "Restart Level: R",
+            "Quit to Menu: SPACE"
+        ]
+        
+        for i, control in enumerate(controls):
+            if control == "CONTROLS:" or control == "PAUSE MENU:":
+                # Section headers
+                color = self.colors['text_accent']
+                size = 'medium'
+            elif control == "":
+                # Skip empty lines but maintain spacing
+                continue
+            else:
+                # Regular control text
+                color = self.colors['text_primary']
+                size = 'small'
+            
+            control_text, control_rect = self.font_manager.render_text(
+                control, size, color, (center_x, center_y - 20 + i * 25)
+            )
+            screen.blit(control_text, control_rect)
     
     def get_ui_zones(self):
         """Get UI zones for collision detection"""
