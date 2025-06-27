@@ -385,6 +385,11 @@ Cosmic Raiders proves that with the right approach to AI-assisted development, s
 **Ready to play Cosmic Raiders?** 
 - 🎮 [Download the game](https://github.com/Vishnu2001-tech/Cosmic_Raiders)
 - 📖 [Read the full development guide](https://github.com/Vishnu2001-tech/Cosmic_Raiders/blob/main/PromptsAI.md)
-- 🚀 [Try the challenge yourself](https://www.estacaodati.com.br/blog/build-games-challenge/)
+
 
 *Defend Earth from the cosmic invasion—20 unique alien ships await your challenge!*
+
+#
+BuildGamesChallenge
+#
+AmazonQDevCLI
