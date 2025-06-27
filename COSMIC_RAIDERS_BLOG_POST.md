@@ -338,13 +338,13 @@ After weeks of AI-assisted development, Cosmic Raiders became something far beyo
 ![Advanced Level Gameplay](screenshots/advanced_gameplay.png)
 *Mothership-class enemies in complex spiral formation showcasing the progressive difficulty system*
 
-### Formation Patterns
-![Formation Showcase](screenshots/formations.png)
-*Demonstration of 4 key mathematical formation patterns: Line, V-Shape, Diamond, and Spiral*
+### Game Over
+![Game Over Screenshot](screenshots/game_over.png)
+*When the game ends, a slightly positive way to encurage gamers to head back in and to never give up trying*
 
-### Visual Effects
-![Particle Effects](screenshots/particle_effects.png)
-*Advanced particle system featuring explosion effects, engine trails, and dynamic space environments*
+### Credits
+![End Credits Screen](screenshots/end_credits.png)
+*A Heartful way of expressing thanks to all the developers and contributors to the game*
 
 ## Key Lessons Learned
 
@@ -385,6 +385,11 @@ Cosmic Raiders proves that with the right approach to AI-assisted development, s
 **Ready to play Cosmic Raiders?** 
 - 🎮 [Download the game](https://github.com/Vishnu2001-tech/Cosmic_Raiders)
 - 📖 [Read the full development guide](https://github.com/Vishnu2001-tech/Cosmic_Raiders/blob/main/PromptsAI.md)
-- 🚀 [Try the challenge yourself](https://www.estacaodati.com.br/blog/build-games-challenge/)
+
 
 *Defend Earth from the cosmic invasion—20 unique alien ships await your challenge!*
+
+#
+BuildGamesChallenge
+#
+AmazonQDevCLI
