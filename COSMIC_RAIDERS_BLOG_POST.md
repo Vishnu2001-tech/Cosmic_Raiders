@@ -338,13 +338,13 @@ After weeks of AI-assisted development, Cosmic Raiders became something far beyo
 ![Advanced Level Gameplay](screenshots/advanced_gameplay.png)
 *Mothership-class enemies in complex spiral formation showcasing the progressive difficulty system*
 
-### Formation Patterns
-![Formation Showcase](screenshots/formations.png)
-*Demonstration of 4 key mathematical formation patterns: Line, V-Shape, Diamond, and Spiral*
+### Game Over
+![Game Over Screenshot](screenshots/particle_effects.png)
+*When the game ends, a slightly positive way to encurage gamers to head back in and to never give up trying*
 
-### Visual Effects
-![Particle Effects](screenshots/particle_effects.png)
-*Advanced particle system featuring explosion effects, engine trails, and dynamic space environments*
+### Credits
+![End Credits Screen](screenshots/particle_effects.png)
+*A Heartful way of expressing thanks to all the developers and contributors to the game*
 
 ## Key Lessons Learned
 
