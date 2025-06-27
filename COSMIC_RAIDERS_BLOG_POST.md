@@ -339,11 +339,11 @@ After weeks of AI-assisted development, Cosmic Raiders became something far beyo
 *Mothership-class enemies in complex spiral formation showcasing the progressive difficulty system*
 
 ### Game Over
-![Game Over Screenshot](screenshots/particle_effects.png)
+![Game Over Screenshot](screenshots/game_over.png)
 *When the game ends, a slightly positive way to encurage gamers to head back in and to never give up trying*
 
 ### Credits
-![End Credits Screen](screenshots/particle_effects.png)
+![End Credits Screen](screenshots/end_credits.png)
 *A Heartful way of expressing thanks to all the developers and contributors to the game*
 
 ## Key Lessons Learned
